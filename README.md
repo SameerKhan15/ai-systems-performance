@@ -1,1 +1,1 @@
-# repository on ai systems performance engineering learnings and experiments
+Repository on learnings and experiments on AI Systems Performance Engineering
