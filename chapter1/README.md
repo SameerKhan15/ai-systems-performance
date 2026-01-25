@@ -14,13 +14,13 @@ NSYS is not installed if the cmd outputs the following
 
 ### Install Nsight Systems
 Install required dependencies
->apt update
+>apt update  
 >apt install -y wget gnupg2
 
->wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
->dpkg -i cuda-keyring_1.1-1_all.deb
+>wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb  
+>dpkg -i cuda-keyring_1.1-1_all.deb  
 
->apt update
+>apt update  
 >apt install -y nsight-systems-2025.5.2
 
 If the above cmd fails, execute the following
@@ -32,7 +32,7 @@ Verify nsys exists
 >find /usr/local -name nsys -type f 2>/dev/null | head
 
 Should see a path like this
->/opt/nvidia/nsight-systems/.../bin/nsys
+>/usr/local/bin/nsys
 
 Test it
 >/opt/nvidia/nsight-systems/*/bin/nsys --version
@@ -61,6 +61,15 @@ Sanity check GPU visibility in PyTorch
 Install Text Editor  
 >apt update  
 >apt install nano  
+
+## Script Execution Command  
+nsys profile \  
+   --trace=cuda,nvtx,osrt \  
+   --output=<output_file_name> \  
+   python <script_name>.py  
+
+Command to download the profiles     
+scp -P <port> root@<ip_address>:/<file_location> .
 
 # Nsight Profile Vocabulary  
 ## ampere_sgemm_32x128_tn
@@ -147,6 +156,17 @@ Script name:  inference_load_1.py
 
 # Observations
 ## Sequence-scaling study  
-### MAX_LENGTH = 64
+### HtoD memcpy  
+Begins / Ends (+X ms)  
+This time progressively increasing from max_length = 64 -> 512  
++7.349 -> +13.905 ms  
+
+**Observation**  
+-) Same bytes copied in ALL cases  
+-) The inputs["input_ids"].shape output confirms element count is increasing from 64 -> 512  
+-) Its not understood why 93.8MB stays the same   
+-) ~93.8MB is substantial for “just token IDs + attention mask” unless your batch is big   
+
+
  
  
