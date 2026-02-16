@@ -167,6 +167,79 @@ This time progressively increasing from max_length = 64 -> 512
 -) Its not understood why 93.8MB stays the same   
 -) ~93.8MB is substantial for “just token IDs + attention mask” unless your batch is big   
 
+I exported HtoD memcpy raw event into a spreadsheet and computed Total Duration and Bytes, for each of these runs. 
+
+**Findings:**  
+1. Same transfer pattern:   
+   a) One large ~89.42 MB HtoD copy  
+   b) Many ~9 MB HtoD copies  
+   c) Many ~2.25 MB HtoD copies 
+    
+   These HtoD copies are framework-internal transfers, not user input tensors.  
+   
+2. Duration changed (increased) with increasing max_length  
+   max_length: 64, bytes: 361 MB, duration: 29.8 msecs  
+   max_length: 128, bytes: 361 MB, duration: 28 msecs  
+   max_length: 256, bytes: 361 MB, duration: 52.7 msecs  
+   max_length: 512, bytes: 361 MB, duration: 53.3 msecs  
+   
+   Increasing max_length increases kernel execution time and stream contention, which inflates the apparent duration of pageable HtoD memcpy operations even though the transferred bytes remain unchanged.  
+   
+### GPU Utilization 
+**ampere_sgemm_XxY_tn**  
+NVDIA matrix multiplication kernel  optimized for A100  
+In math terms, its doing C = A^T * B  
+ -) ampere: tuned for A100/Ampere architecture  
+ -) sgemm: matrix multiply using FP32  
+ -) X*Y: a tile/block shape the kernel uses internally (how the GPU chunks the GEMM)  
+ -) _tn: A is transposed (t), B is not (n)  
+ 
+A kernel like this is used for linear algebra ops, which is exactly what transformers do:  
+-) Q/K/V projections  
+-) Attention matmuls  
+-) MLP matmuls  
+This kernel is one of those “heavy lifters.”  
+   
+**Notes about different tile shapes in the profiles**  
+ampere_sgemm_32x128_tn  
+-) Tile shape: 32 × 128  
+-) Favors Taller matrices in the N dimension. Often used when one dimension is relatively wide  
+-) Common in Attention projections and Some MLP layers when batch × seq is large  
+
+ampere_sgemm_128x64_tn  
+-) Tile shape: 128 × 64  
+-) Favors larger M dimension (more rows / more parallel work)  
+-) Common in larger batched GEMMs and MLP up-projection or down-projection  
+
+Transformers don’t do one matrix multiply — they do many, and their shapes differ:  
+-) Q, K, V projections  
+-) Attention score computation  
+-) Attention output projection  
+-) MLP expand (hidden → 4×hidden)  
+-) MLP contract (4×hidden → hidden)  
+
+Each of those has different:  
+-) M (rows)  
+-) N (columns)  
+-) K (reduction dimension)  
+
+**Results and Observation** 
+Insight#1: GPU total time vs max_length: near-linear scaling  
+-) max_length = 64, Total GPU time (s) = 2.64  
+-) max_length = 128, Total GPU time (s) = 5.0  
+-) max_length = 256, Total GPU time (s) = 9.0  
+-) max_length = 512, Total GPU time (s) = 18.75  
+
+Conclusion: Inference workload is compute bound and well-scaled  
+
+Insight#2: Dominant kernels shift as sequence length grows  
+-) max_length = 64  
+   32x128_tn  ~0.71s  
+   128x64_tn  ~0.29s  
+   
+
+
+
 
  
  
