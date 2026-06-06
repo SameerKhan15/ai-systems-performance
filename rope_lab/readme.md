@@ -80,3 +80,70 @@ RoPE is fundamentally a per-token vector transformation.
 
 Attention is fundamentally a matrix operation across all tokens.  
 
+### Explanation of Attention-style similarity matrix: Q_rope @ Q_rope.T  shown in `q_matrix_rope_lab.py`  
+Q_rope @ Q_rope.T means Q_rope matrix_mul Q_rope.T  
+
+Lets use 4-Token Sentence  
+`The cat sat down`  
+
+Suppose after RoPE we have:  
+![](7.png "This is a sample image.")  
+
+where: each row is one token's rotated query vector.  
+
+Shape: 4 x d  
+
+#### What is Q_rope.T?  
+Transpose means rows become columns.
+So Q_rope.T has shape d x 4  
+
+Multiply them gives 4 x 4 shape, because (4×d)(d×4) = 4×4  
+
+Each cell contains ![](8.png "This is a sample image."), which is dot product between token i and token j  
+
+#### Visual Picture  
+![](9.png "This is a sample image.")  
+
+Every cell is a similarity score.  
+
+Attention is fundamentally asking "How similar is every token to every other token?". This matrix answers that question.  
+
+#### Example  
+Suppose "The cat sat down"  
+
+After RoPE:  
+Maybe "cat" and "sat" have similar orientations.  
+Then ![](10.png "This is a sample image.") will be high.  
+
+But "The" and "down" might have very different orientations.  
+Then ![](11.png "This is a sample image.") will be low. 
+
+RoPE modifies vector orientations before these dot products are computed.  
+
+RoPE directly changes the entries of: ![](12.png "This is a sample image.")  
+
+E.g attention dot product matrix (after RoPE was applied to the vectors)
+![](13.png "This is a sample image.")  
+
+Interpretation:  
+* same token position → 2.0000  
+* 1 position apart → 1.5403  
+* 2 positions apart → 0.5837  
+* 3 positions apart → 0.0096  
+
+So RoPE made similarity decrease as relative distance increased.  
+
+Also notice the diagonals:  
+* main diagonal: 2.0000  
+* one-off diagonal: 1.5403  
+* two-off diagonal: 0.5837  
+* three-off diagonal: 0.0096  
+
+This means the score depends on relative offset, not absolute position.  
+
+For example:  
+* The ↔ cat = 1.5403  
+* cat ↔ sat = 1.5403  
+* sat ↔ down = 1.5403  
+
+All are one position apart, so all have the same similarity.  
