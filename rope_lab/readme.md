@@ -18,6 +18,29 @@ RoPE operates on this vector by rotating:
 * (q2, q3)  
 independently.  
 
+## Fundamentals of RoPE Geometry  
+Suppose vector v = [1,0]. This vector points directly right on x-axis. We want a mathmatical operation that rotates this vector counter-clockwise. 
+This is where the concept of Rotation Matrix comes in. The matrix:
+![](14.png "This is a sample image.")  
+
+This is the standard rotation matrix from linear algebra. 
+
+## What is a Matrix Geometrically  
+A matrix fundamentally is a geometric transformation. Some matrices:  
+* Stretch vectors  
+* Shrink vectors  
+* Reflect vectors  
+* Shear vectors  
+* Rotate vectors  (This is what the rotation matrix does)  
+
+## The Deep Intuition  
+Suppose v = v = [1,0]. Then R(theta) means: rotate v by angle theta  
+
+## Why cosine and sine appear  
+Points on a unit circle are (cos(theta), sin(theta)). Rotation fundamentally involves circular geometry. So sine / cosine naturally emerge.  
+
+$ \begin{pmatrix} a & b & c \\ c & d & e \end{pmatrix} $
+
 ### Entire Sequence  
 Now suppose sentence:  
 `The cat sat down`  
