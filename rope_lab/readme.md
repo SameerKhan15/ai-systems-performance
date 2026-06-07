@@ -39,7 +39,12 @@ Suppose v = v = [1,0]. Then R(theta) means: rotate v by angle theta
 ## Why cosine and sine appear  
 Points on a unit circle are (cos(theta), sin(theta)). Rotation fundamentally involves circular geometry. So sine / cosine naturally emerge.  
 
-$ \begin{pmatrix} a & b & c \\ c & d & e \end{pmatrix} $
+$
+\begin{pmatrix}
+a & b & c \\
+c & d & e
+\end{pmatrix}
+$
 
 ### Entire Sequence  
 Now suppose sentence:  
