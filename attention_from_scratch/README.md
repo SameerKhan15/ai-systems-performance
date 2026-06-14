@@ -1,5 +1,5 @@
 # Transformer Self-Attention Runtime Benchmarking  
-![](1.png "This is a sample image.")  
+![](png/1.png "This is a sample image.")  
 
 ## Description of Key, Query, Value Vectors  
 Query: Represents the current token in a sentence the model focuses on, or tries to understand.  
