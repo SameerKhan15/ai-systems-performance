@@ -1,0 +1,84 @@
+Using device: cuda
+GPU Name        : NVIDIA A100-SXM4-80GB
+CUDA Version    : 12.4
+PyTorch Version : 2.4.1+cu124
+============================================================
+seq_len              : 64
+embed_dim            : 128
+Q projection         : 0.111 ms
+K projection         : 0.031 ms
+V projection         : 0.030 ms
+QK^T scores          : 0.104 ms
+softmax              : 0.036 ms
+weights @ V          : 0.032 ms
+total                : 0.345 ms
+attention matrix     : 0.02 MB
+peak GPU memory      : 8.50 MB
+============================================================
+============================================================
+seq_len              : 128
+embed_dim            : 128
+Q projection         : 0.085 ms
+K projection         : 0.030 ms
+V projection         : 0.029 ms
+QK^T scores          : 0.079 ms
+softmax              : 0.058 ms
+weights @ V          : 0.036 ms
+total                : 0.317 ms
+attention matrix     : 0.06 MB
+peak GPU memory      : 8.75 MB
+============================================================
+============================================================
+seq_len              : 256
+embed_dim            : 128
+Q projection         : 0.060 ms
+K projection         : 0.031 ms
+V projection         : 0.029 ms
+QK^T scores          : 0.072 ms
+softmax              : 0.045 ms
+weights @ V          : 4.258 ms
+total                : 4.496 ms
+attention matrix     : 0.25 MB
+peak GPU memory      : 9.44 MB
+============================================================
+============================================================
+seq_len              : 512
+embed_dim            : 128
+Q projection         : 0.084 ms
+K projection         : 0.031 ms
+V projection         : 0.030 ms
+QK^T scores          : 0.510 ms
+softmax              : 0.063 ms
+weights @ V          : 0.085 ms
+total                : 0.804 ms
+attention matrix     : 1.00 MB
+peak GPU memory      : 11.56 MB
+============================================================
+============================================================
+seq_len              : 1024
+embed_dim            : 128
+Q projection         : 0.103 ms
+K projection         : 0.035 ms
+V projection         : 0.032 ms
+QK^T scores          : 0.109 ms
+softmax              : 0.072 ms
+weights @ V          : 0.077 ms
+total                : 0.427 ms
+attention matrix     : 4.00 MB
+peak GPU memory      : 18.81 MB
+============================================================
+============================================================
+seq_len              : 2048
+embed_dim            : 128
+Q projection         : 0.058 ms
+K projection         : 0.036 ms
+V projection         : 0.226 ms
+QK^T scores          : 6.568 ms
+softmax              : 0.106 ms
+weights @ V          : 0.212 ms
+total                : 7.207 ms
+attention matrix     : 16.00 MB
+peak GPU memory      : 45.31 MB
+============================================================
+Saved plots to: /root/results/20260618_034008
+Saved metrics to: results/20260618_034008/metrics.csv

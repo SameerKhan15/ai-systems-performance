@@ -51,6 +51,9 @@ Install the minimal Python stack
 >pip install torch torchvision torchaudio  
 >pip install transformers datasets accelerate  
 
+Install Matlab  
+>pip install matplotlib
+
 Sanity check GPU visibility in PyTorch  
 >>python - << 'EOF'  
 >>import torch  
