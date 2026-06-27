@@ -19,3 +19,7 @@ Layer 1: stay near G
 Layer 0: expand around G, discover F and H  
 Return top-2: H, F`  
 
+![](plots/00_vectors_and_query.png "vectors_and_query")  
+![](plots/01_layer_2_express_graph.png "layer2_express_qraph")
+![](plots/02_layer_1_regional_graph.png "layer1_regional_qraph")
+![](plots/03_layer_0_local_graph.png "layer0_local_qraph")
