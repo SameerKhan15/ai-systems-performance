@@ -48,32 +48,32 @@ To be inserted Vectors:
 A vector exists from layer 0 to its maximum layer. 
 
 ### INSERT A = (1,1), max_layer = 2  
-`Layer2: A  
- Layer1: A  
- Layer0: A`  
+`Layer2: A`  
+`Layer1: A`  
+`Layer0: A`  
 
 ### INSERT B = (2,2), max_layer = 0  
 Start at layer 2. The layer has only a single node. Descend from A to the same node at Layer 1. Layer 1 also has only a single node. Descend from A to the same node at Layer 0.  
 Layer 0 also has a single node. Connect B to A.  
 
-`Layer2: A  
- Layer1: A  
- Layer0: A - B`  
+`Layer2: A`  
+`Layer1: A`  
+`Layer0: A - B`  
 
 ### INSERT C = (1,4), max_layer = 1  
 Start at layer 2. The layer has only a single node. Descend from A to the same node at Layer 1. Layer 1 also has only a single node. Connect this node to A. 
 `Layer1: A - C`  
 Move to A and descend to Layer 0's node A.  
 Layer 0 has node A and B. 
-`eDist(C,A) = 3  
- eDist(C,B) = 2.24`  
+`eDist(C,A) = 3`  
+`eDist(C,B) = 2.24`  
 
 M=2, so connect C to both nodes.  
-`Layer2: A  
- Layer1: A - C  
- Layer0: A - B
-         -  -  
-          C // connected to both A and B`  
+`Layer2: A`  
+`Layer1: A - C`  
+`Layer0: A - B`
+`        -  -`  
+          `C // connected to both A and B`  
 
 ### INSERT D = (4,4), max_layer = 0  
 Start at layer 2. Since the layer only has a single node, descend to Layer 1's node A.  
