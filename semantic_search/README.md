@@ -36,14 +36,14 @@ Inter-node Euclidean distance (**eDist**) formula:
 
 To be inserted Vectors:  
 ### Vector, Coordinates, Maximum Layer  
-`A, (1,1), 2  
- B, (2,2), 0  
- C, (1,4), 1  
- D, (4,4), 0  
- E, (5,1), 1  
- F, (7,2), 0  
- G, (8,4), 2  
- H, (9,1), 0`  
+`A, (1,1), 2`  
+`B, (2,2), 0`  
+`C, (1,4), 1`  
+`D, (4,4), 0`  
+`E, (5,1), 1`  
+`F, (7,2), 0`  
+`G, (8,4), 2`  
+`H, (9,1), 0`  
 
 A vector exists from layer 0 to its maximum layer. 
 
