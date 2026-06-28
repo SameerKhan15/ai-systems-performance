@@ -123,13 +123,17 @@ Tie between B and D. Retain D.
 ### INSERT E = (5,1), max_layer = 1  
 Start at layer 2. Descend to Layer 1's node A.  
 At Layer 1:  
-`eDist(E,A) = 4  
- eDist(E,C) = 5`  
+`eDist(E,A) = 4`  
+`eDist(E,C) = 5`  
 
 Since M=2, connect to both nodes.  
-`Layer1: A - C  
-         -  -  
-           E  `  
+```text
+Layer 1:
+
+  A --- C
+   \   /
+     E
+```
 Since node E is the nearest from node A, move to the node and descend to Layer 0's node A.  
 At Layer 0:  
 `Layer 0: A - B - C - D`  
@@ -148,55 +152,78 @@ Does it stop before D? This is the subtle part. The algorithm does not simply sa
 `eDist(E,D) = 3.16`  
 
 efConstruction = 3, best candidates are: [B,D,A]  
-`At Layer 0: A - B - C- D  
-                 -      -  
-                    E  `  
+```text
+Layer 0:
+
+  A --- B --- C --- D
+        \         /
+         \       /
+             E
+```
 
 Now B has 3 nodes. One need to be pruned.  
-`eDist(B,A) = 1.41  
- eDist(B,C) = 2.24  
- eDist(B,E) = 3.16`  
+`eDist(B,A) = 1.41`  
+`eDist(B,C) = 2.24`  
+`eDist(B,E) = 3.16`  
 B - E gets pruned  
 `At Layer 0: A - B - C - D - E` 
 
-`Layer 2: A  
- Layer 1: A - C  
-          -   -  
-            E  
- Layer 0: A - B - C - D - E`  
+```text
+Layer 2:
+  A
+
+Layer 1:
+  A --- C
+   \   /
+     E
+
+Layer 0:
+  A --- B --- C --- D --- E
+```
 
 ### INSERT F = (7,2), max_layer = 0  
 At Layer 2: only a single node. Descend to Layer 1's node A.  
 At Layer1:  
-`eDist(F,A) = 6.08  
- eDist(F,C) = 6.32  
- eDist(F,E) = 2.24`
+`eDist(F,A) = 6.08`  
+`eDist(F,C) = 6.32`  
+`eDist(F,E) = 2.24`  
 Move to E and descend to Layer 0.  
 
 At Layer 0:  
 Since efConstruction = 3, consider 3 candidate nodes from E.  
-eDist(F,E) = 2.24  
-eDist(F,D) = 3.61  
-eDist(F,C) = 6.32  
-eDist(F,B) = // might compute this as well but we will skip for this example  
+`eDist(F,E) = 2.24`  
+`eDist(F,D) = 3.61`  
+`eDist(F,C) = 6.32`  
+`eDist(F,B) = // might compute this as well but we will skip for this example`  
 
 select [E,D]  
 
-`Layer 0: A - B - C - D - E  
-                      -   -  
-                        F`  
+```text
+Layer 0:
+
+  A --- B --- C --- D --- E
+                  \   /
+                    F
+```
 Node D has 3 neighbours, which is a violation.  
-`eDist(D,C) = 3   
- eDist(D,E) = 3.16  
- eDist(D,F) = 3.61`  
+`eDist(D,C) = 3`   
+`eDist(D,E) = 3.16`  
+`eDist(D,F) = 3.61`  
 D-F gets pruned. 
 `Layer 0: A - B - C - D - E - F`  
 
-`Layer 2: A  
- Layer 1: A - C  
-          -   -  
-            E  
- Layer 0: A - B - C - D - E - F`  
+```text
+Layer 2:
+  A
+
+Layer 1:
+  A --- C
+   \   /
+     E
+
+Layer 0:
+  A --- B --- C --- D --- E --- F
+```
 
 ### INSERT G = (8,4), max_layer = 2  
 At Layer 2: since there is only a single node, connect G to A.  
@@ -204,99 +231,123 @@ At Layer 2: since there is only a single node, connect G to A.
 Move to A and descend to Layer 1.  
 
 At Layer 1:  
-`eDist(G,A) = 7.62  
- eDist(G,C) = 7  
- eDist(G,E) = 4.24`  
+`eDist(G,A) = 7.62`  
+`eDist(G,C) = 7`  
+`eDist(G,E) = 4.24`  
 efConstruction = 3 so we consider all three distances. M = 2, so we pick the best two: [E,C]  
 
-`Layer 1: 
-          A 
-       -     -  
-       C  -  E  
-       -     -  
-          G`  
+```text
+Layer 1:
+
+      A
+    /   \
+   C --- E
+    \   /
+      G
+```
 Node E is in violation. Need to prune one edge.  
-`eDist(E,G) = 4.24  
- eDist(E,C) = 5   
- eDist(E,A) = 4`  
+`eDist(E,G) = 4.24`  
+`eDist(E,C) = 5`   
+`eDist(E,A) = 4`  
 Prune [E,C]  
 
-`Layer 1: 
-          A 
-       -     -  
-       C     E  
-       -     -  
-          G`  
+```text
+Layer 1:
 
-eDist(G,E) = 4.24  
-eDist(G,C) = 7  
-eDist(G,A) = // lets assume > 7  
+      A
+    /   \
+   C     E
+    \   /
+      G
+```
+
+`eDist(G,E) = 4.24`  
+`eDist(G,C) = 7`  
+`eDist(G,A) = // lets assume > 7`  
 
 Move to node E and descend to Layer 0  
 
 At Layer 0:  
 `A - B - C - D - E - F`  
-`eDist(G,E) = 4.24  
- eDist(G,F) = 2.24  
- eDist(G,D) = 4  
- eDist(G,C) = // lets assume > 4.24`
+`eDist(G,E) = 4.24`  
+`eDist(G,F) = 2.24`  
+`eDist(G,D) = 4` 
+`eDist(G,C) = // lets assume > 4.24`
 M=2, pick [F,D]  
 
-Layer 0: 
-`A - B - C - D - E - F
-             -       -  
-                 G`    
+```text
+Layer 0:
+
+  A --- B --- C --- D --- E --- F
+                  \           /
+                   \         /
+                         G
+```
 Node D is in violation.  
 D:[C,E,G]  
-eDist(D,C) = .. 
-eDist(D,E) = .. 
-eDist(D,G) = .. // prunes this  
+`eDist(D,C) = ..` 
+`eDist(D,E) = ..` 
+`eDist(D,G) = .. // prunes this`  
 
 Layer 0: `A - B - C - D - E - F - G`  
 
 Current graph state:  
-`Layer 2: A - G
- Layer 1: 
-          A 
-       -     -  
-       C     E  
-       -     -  
-          G
- Layer 0: 
- A - B - C - D - E - F - G`   
+```text
+Layer 2:
+  A --- G
+
+Layer 1:
+
+      A
+    /   \
+   C     E
+    \   /
+      G
+
+Layer 0:
+  A --- B --- C --- D --- E --- F --- G
+```
 
 ### INSERT H = (9,1), max_layer = 0  
 At Layer 2:  
-`eDist(H,A) = 8  
- eDist(H,G) = 3.16`  
+`eDist(H,A) = 8`  
+`eDist(H,G) = 3.16`  
 Move to node G and descend to Layer 1 G node  
 
 At Layer 1:  
-`eDist(H,G) = 3.16  
- eDist(H,C) = 8.54  
- eDist(H,E) = 4  
- eDist(H,A) = ... // assume its > 8.54` 
+`eDist(H,G) = 3.16`  
+`eDist(H,C) = 8.54`  
+`eDist(H,E) = 4`  
+`eDist(H,A) = ... // assume its > 8.54` 
 
 Move to G and descend to Layer 0's G  
 
 At Layer 0:  
-`eDist(H,G) = 3.16  
-eDist(H,E) = 4  
-eDist(H,F) = 2.24`  
+`eDist(H,G) = 3.16`  
+`eDist(H,E) = 4`  
+`eDist(H,F) = 2.24`  
 ...  
 Pick [G,F]  
-`Layer 0: A - B - C - D - E - F - G 
-                             -   - 
-                               H`  
+```text
+Layer 0:
+
+  A --- B --- C --- D --- E --- F --- G
+                                \   /
+                                  H
+```
 F is in violation.  
-`eDist(F,E) = 2.24  
- eDist(F,G) = 2.24  
- eDist(F,H) = 2.24`  
+`eDist(F,E) = 2.24`  
+`eDist(F,G) = 2.24`  
+`eDist(F,H) = 2.24`  
 They al tier. Pruned E.  
 
-`Layer 0: A - B - C - D - E  F - G 
-                              -   - 
-                               H`  
+```text
+Layer 0:
+
+  A --- B --- C --- D --- E --- F --- G
+                                \   /
+                                  H
+```
 Notice: Disconnected left and right chains. 
 Artifact of our simplified toy rules.  
 M=2 is very small. Real HNSW uses better neighbor-selection heuristics.  
@@ -312,21 +363,28 @@ A more stable version would be: A - B - C - D - E - F - G - H
 
 # Query Search  
 `Q = (8.5,1.5)`  
-`Layer 2: A - G 
- Layer 1: A - E 
-         -   -  
-         C - G  
- Layer 0: A - B - C - D - E - F - G - H`  
+```text
+Layer 2:
+  A --- G
+
+Layer 1:
+  A --- E
+  |     |
+  C --- G
+
+Layer 0:
+  A --- B --- C --- D --- E --- F --- G --- H
+```
 
 Step1: Layer 2 greedy search   
-eDist(Q,A) = 7.52  
-eDist(Q,G) = 2.55  
+`eDist(Q,A) = 7.52` 
+`eDist(Q,G) = 2.55`  
 Move to G and descend to Layer 1.  
 
 Layer 1:  
-`eDist(Q,G) = 2.55  
- eDist(Q,E) = 3.54  
- eDist(Q,C) = 7.91`  
+`eDist(Q,G) = 2.55`  
+`eDist(Q,E) = 3.54`  
+`eDist(Q,C) = 7.91`  
 
 Now descend to Layer 0 from G  
 
@@ -335,13 +393,12 @@ Layer 0:
 Expanded search starting at node G.  
 efSearch = 4 // Explore about 4 promising candidates  
 k=2 // return the best 2  
-`eDist(Q,G) = 2.55  
-eDist(Q,F) = 1.58  
-eDist(Q,H) = 0.71`  
+`eDist(Q,G) = 2.55`  
+`eDist(Q,F) = 1.58`  
+`eDist(Q,H) = 0.71`  
 1 more ...  
 Expand H neighbor, already explored. Expand F neighbor: G already explored.  
 `eDist(Q,E) = 3.54`  
 
 Return top_k = 2 = [H,F]  
 **At production scale, the same also becomes: "checks 100s of nodes instead of millions"**  
-ß
