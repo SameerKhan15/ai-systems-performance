@@ -64,16 +64,21 @@ Layer 0 also has a single node. Connect B to A.
 Start at layer 2. The layer has only a single node. Descend from A to the same node at Layer 1. Layer 1 also has only a single node. Connect this node to A. 
 `Layer1: A - C`  
 Move to A and descend to Layer 0's node A.  
-Layer 0 has node A and B. 
+Layer 0 has node A and B.  
 `eDist(C,A) = 3`  
 `eDist(C,B) = 2.24`  
 
 M=2, so connect C to both nodes.  
-`Layer2: A`  
-`Layer1: A - C`  
-`Layer0: A - B`
-`        -  -`  
-          `C // connected to both A and B`  
+```text
+Layer 2:  A
+
+Layer 1:  A --- C
+
+Layer 0:  A --- B
+           \   /
+             C
+```
+
 
 ### INSERT D = (4,4), max_layer = 0  
 Start at layer 2. Since the layer only has a single node, descend to Layer 1's node A.  
