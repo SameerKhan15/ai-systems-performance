@@ -24,78 +24,141 @@ Return top-2: H, F`
 ![](plots/02_layer_1_regional_graph.png "layer1_regional_qraph")
 ![](plots/03_layer_0_local_graph.png "layer0_local_qraph")
 
-## Algorithm Details via Toy Example(s)  
-Let: 
-M = 2 // each node keeps at most 2 neighbors per layer  
-efConstruction = 3 // each node considers up to 3 promising candidates during insertion  
+# HNSW Toy Example: Index Construction and Query Search
 
-Inter-node Euclidean distance (**eDist**) formula:  
-`(B, A) = sqrt{(b1 - a1)^2 + (b2 - a2)^2} + ... = ... `  
-`e.g. A = (1,1), B = (2,2)`  
-`(B, A) = sqrt{(1-2)^2 + (1-2)^2} = sqrt(2) = 1.41`  
+This note walks through a small, hand-worked HNSW-style example using two-dimensional vectors. It is intentionally simplified so the mechanics are easy to see.
 
-To be inserted Vectors:  
-### Vector, Coordinates, Maximum Layer  
-`A, (1,1), 2`  
-`B, (2,2), 0`  
-`C, (1,4), 1`  
-`D, (4,4), 0`  
-`E, (5,1), 1`  
-`F, (7,2), 0`  
-`G, (8,4), 2`  
-`H, (9,1), 0`  
+We use:
 
-A vector exists from layer 0 to its maximum layer. 
-
-### INSERT A = (1,1), max_layer = 2  
-`Layer2: A`  
-`Layer1: A`  
-`Layer0: A`  
-
-### INSERT B = (2,2), max_layer = 0  
-Start at layer 2. The layer has only a single node. Descend from A to the same node at Layer 1. Layer 1 also has only a single node. Descend from A to the same node at Layer 0.  
-Layer 0 also has a single node. Connect B to A.  
-
-`Layer2: A`  
-`Layer1: A`  
-`Layer0: A - B`  
-
-### INSERT C = (1,4), max_layer = 1  
-Start at layer 2. The layer has only a single node. Descend from A to the same node at Layer 1. Layer 1 also has only a single node. Connect this node to A. 
-`Layer1: A - C`  
-Move to A and descend to Layer 0's node A.  
-Layer 0 has node A and B.  
-`eDist(C,A) = 3`  
-`eDist(C,B) = 2.24`  
-
-M=2, so connect C to both nodes.  
 ```text
-Layer 2:  A
-
-Layer 1:  A --- C
-
-Layer 0:  A --- B
-           \   /
-             C
+M = 2
+efConstruction = 3
+efSearch = 4
+k = 2
 ```
 
+In real HNSW implementations, neighbor selection and pruning use additional heuristics, and Layer 0 often allows more neighbors than upper layers. This toy example uses simplified nearest-neighbor pruning unless otherwise noted.
 
-### INSERT D = (4,4), max_layer = 0  
-Start at layer 2. Since the layer only has a single node, descend to Layer 1's node A.  
-At Layer 1:  
-`eDist(D,A) = 4.24`  
-`eDist(D,C) =3`  
+## Vectors to Insert
 
-Since C is closer, move to that node and descend to Layer 0's node C.  
+| Vector | Coordinates | Maximum layer |
+|---|---:|---:|
+| A | (1, 1) | 2 |
+| B | (2, 2) | 0 |
+| C | (1, 4) | 1 |
+| D | (4, 4) | 0 |
+| E | (5, 1) | 1 |
+| F | (7, 2) | 0 |
+| G | (8, 4) | 2 |
+| H | (9, 1) | 0 |
 
-At Layer 0:  
-`eDist(D,A) = 4.24`  
-`eDist(D,C) = 3`  
-`eDist(D,B) = 2.83`  
+A vector exists on every layer from Layer 0 through its maximum layer.
 
-`efConstruction = 3` - All three will be held in the candidate list.  
+For example, if a vector has `max_layer = 2`, it exists on Layers 0, 1, and 2.
 
-With M=2, initially select [B,C]  
+---
+
+# Index Construction
+
+## Insert A = (1, 1), max_layer = 2
+
+A is the first vector, so it becomes the entry point.
+
+```text
+Layer 2:
+  A
+
+Layer 1:
+  A
+
+Layer 0:
+  A
+```
+
+---
+
+## Insert B = (2, 2), max_layer = 0
+
+Start at Layer 2. The layer has only A, so descend to the same node ID at Layer 1. Layer 1 also has only A, so descend to Layer 0.
+
+At Layer 0, connect B to A.
+
+```text
+Layer 2:
+  A
+
+Layer 1:
+  A
+
+Layer 0:
+  A --- B
+```
+
+---
+
+## Insert C = (1, 4), max_layer = 1
+
+Start at Layer 2. The layer has only A, so descend to Layer 1.
+
+At Layer 1, connect C to A.
+
+```text
+Layer 1:
+  A --- C
+```
+
+Now descend from A on Layer 1 to A on Layer 0.
+
+At Layer 0:
+
+```text
+eDist(C, A) = 3.00
+eDist(C, B) = 2.24
+```
+
+Since `M = 2`, connect C to both A and B.
+
+```text
+Layer 2:
+  A
+
+Layer 1:
+  A --- C
+
+Layer 0:
+  A --- B
+   \   /
+     C
+```
+
+---
+
+## Insert D = (4, 4), max_layer = 0
+
+Start at Layer 2. The layer has only A, so descend to Layer 1.
+
+At Layer 1:
+
+```text
+eDist(D, A) = 4.24
+eDist(D, C) = 3.00
+```
+
+C is closer, so move to C and descend to C on Layer 0.
+
+At Layer 0:
+
+```text
+eDist(D, A) = 4.24
+eDist(D, B) = 2.83
+eDist(D, C) = 3.00
+```
+
+With `efConstruction = 3`, all three nodes can be held in the candidate set.
+
+With `M = 2`, D initially selects B and C.
+
+Before pruning:
 
 ```text
 Layer 0:
@@ -105,28 +168,55 @@ Layer 0:
     \  |   /
        C
 ```
-Note that B now has 3 neighbours. Since M = 2, it violates that property. B should keep its closest two.  
-`eDist(B,A) = 1.41`  
-`eDist(B,C) = 2.24`  
-`eDist(B,D) = 2.83`  
 
-B prunes D. C also has 3 neighbours now: A, B, D  
-`eDist(C,A) = 2.24`  
-`eDist(C,B) = 3.0`  
-`eDist(C,D) = 3.0`  
+B now has three neighbors: A, C, and D. Since `M = 2`, one edge must be pruned.
 
-Tie between B and D. Retain D.  
-`Layer2: A`  
-`Layer1: A - C`  
-`Layer0: B - A - C - D`  
+```text
+eDist(B, A) = 1.41
+eDist(B, C) = 2.24
+eDist(B, D) = 2.83
+```
 
-### INSERT E = (5,1), max_layer = 1  
-Start at layer 2. Descend to Layer 1's node A.  
-At Layer 1:  
-`eDist(E,A) = 4`  
-`eDist(E,C) = 5`  
+B prunes D.
 
-Since M=2, connect to both nodes.  
+C also has three neighbors: A, B, and D.
+
+```text
+eDist(C, A) = 3.00
+eDist(C, B) = 2.24
+eDist(C, D) = 3.00
+```
+
+There is a tie between A and D. For this toy example, retain D and prune A on Layer 0. The C-A edge still exists on Layer 1.
+
+After pruning:
+
+```text
+Layer 2:
+  A
+
+Layer 1:
+  A --- C
+
+Layer 0:
+  A --- B --- C --- D
+```
+
+---
+
+## Insert E = (5, 1), max_layer = 1
+
+Start at Layer 2. The layer has only A, so descend to Layer 1.
+
+At Layer 1:
+
+```text
+eDist(E, A) = 4.00
+eDist(E, C) = 5.00
+```
+
+Since `M = 2`, connect E to both A and C.
+
 ```text
 Layer 1:
 
@@ -134,24 +224,41 @@ Layer 1:
    \   /
      E
 ```
-Since node E is the nearest from node A, move to the node and descend to Layer 0's node A.  
-At Layer 0:  
-`Layer 0: A - B - C - D`  
 
-**Note that efConstruction = 3. This does NOT mean "only consider the first three nodes encountered: A,B,C". It means the algorithm maintains a search frontier / candidate set of roughly size 3 while 
-exploring the graph. It can still discover D if the search expands through C**  
+A is closer to E than C is, so the Layer 1 search position remains A. Descend from A on Layer 1 to A on Layer 0.
 
-`eDist(E,A) = 4`  
-Now explore A's neighbour(s). Calculate distance from B  
-`eDist(E,B) = 3.16`  
+At Layer 0, before inserting E:
 
-Now explore B's neighbours(s). A is already computed. Calculate distance from C  
-`eDist(E,C) = 5`  
+```text
+Layer 0:
+  A --- B --- C --- D
+```
 
-Does it stop before D? This is the subtle part. The algorithm does not simply say: "I have seen 3 nodes, so stop". Instead C is still in the candidate frontier (as the 3rd node). So it will explore its neighbours.  
-`eDist(E,D) = 3.16`  
+Important point:
 
-efConstruction = 3, best candidates are: [B,D,A]  
+`efConstruction = 3` does **not** mean "only consider the first three nodes encountered: A, B, C." It means the algorithm maintains a bounded candidate/result set while exploring the graph. It can still discover D if the search expands through C.
+
+Distances from E:
+
+```text
+eDist(E, A) = 4.00
+eDist(E, B) = 3.16
+eDist(E, C) = 5.00
+eDist(E, D) = 3.16
+```
+
+With `efConstruction = 3`, the best candidates are approximately:
+
+```text
+B: 3.16
+D: 3.16
+A: 4.00
+```
+
+With `M = 2`, E initially selects B and D.
+
+Before pruning:
+
 ```text
 Layer 0:
 
@@ -161,12 +268,17 @@ Layer 0:
              E
 ```
 
-Now B has 3 nodes. One need to be pruned.  
-`eDist(B,A) = 1.41`  
-`eDist(B,C) = 2.24`  
-`eDist(B,E) = 3.16`  
-B - E gets pruned  
-`At Layer 0: A - B - C - D - E` 
+B now has three neighbors: A, C, and E.
+
+```text
+eDist(B, A) = 1.41
+eDist(B, C) = 2.24
+eDist(B, E) = 3.16
+```
+
+B prunes E. D accepts E.
+
+After pruning:
 
 ```text
 Layer 2:
@@ -181,22 +293,35 @@ Layer 0:
   A --- B --- C --- D --- E
 ```
 
-### INSERT F = (7,2), max_layer = 0  
-At Layer 2: only a single node. Descend to Layer 1's node A.  
-At Layer1:  
-`eDist(F,A) = 6.08`  
-`eDist(F,C) = 6.32`  
-`eDist(F,E) = 2.24`  
-Move to E and descend to Layer 0.  
+---
 
-At Layer 0:  
-Since efConstruction = 3, consider 3 candidate nodes from E.  
-`eDist(F,E) = 2.24`  
-`eDist(F,D) = 3.61`  
-`eDist(F,C) = 6.32`  
-`eDist(F,B) = // might compute this as well but we will skip for this example`  
+## Insert F = (7, 2), max_layer = 0
 
-select [E,D]  
+Start at Layer 2. The layer has only A, so descend to Layer 1.
+
+At Layer 1:
+
+```text
+eDist(F, A) = 6.08
+eDist(F, C) = 6.32
+eDist(F, E) = 2.24
+```
+
+Move to E and descend to E on Layer 0.
+
+At Layer 0:
+
+```text
+eDist(F, E) = 2.24
+eDist(F, D) = 3.61
+eDist(F, C) = 6.32
+```
+
+With `efConstruction = 3`, the best candidates are approximately E, D, and C.
+
+With `M = 2`, F initially selects E and D.
+
+Before pruning:
 
 ```text
 Layer 0:
@@ -205,12 +330,18 @@ Layer 0:
                   \   /
                     F
 ```
-Node D has 3 neighbours, which is a violation.  
-`eDist(D,C) = 3`   
-`eDist(D,E) = 3.16`  
-`eDist(D,F) = 3.61`  
-D-F gets pruned. 
-`Layer 0: A - B - C - D - E - F`  
+
+D now has three neighbors: C, E, and F.
+
+```text
+eDist(D, C) = 3.00
+eDist(D, E) = 3.16
+eDist(D, F) = 3.61
+```
+
+D prunes F. E accepts F.
+
+After pruning:
 
 ```text
 Layer 2:
@@ -225,16 +356,30 @@ Layer 0:
   A --- B --- C --- D --- E --- F
 ```
 
-### INSERT G = (8,4), max_layer = 2  
-At Layer 2: since there is only a single node, connect G to A.  
-`Layer 2: A - G`  
-Move to A and descend to Layer 1.  
+---
 
-At Layer 1:  
-`eDist(G,A) = 7.62`  
-`eDist(G,C) = 7`  
-`eDist(G,E) = 4.24`  
-efConstruction = 3 so we consider all three distances. M = 2, so we pick the best two: [E,C]  
+## Insert G = (8, 4), max_layer = 2
+
+At Layer 2, only A exists. Connect G to A.
+
+```text
+Layer 2:
+  A --- G
+```
+
+Descend from A to A on Layer 1.
+
+At Layer 1:
+
+```text
+eDist(G, A) = 7.62
+eDist(G, C) = 7.00
+eDist(G, E) = 4.24
+```
+
+With `efConstruction = 3`, consider A, C, and E. With `M = 2`, G initially selects E and C.
+
+Before pruning:
 
 ```text
 Layer 1:
@@ -245,11 +390,16 @@ Layer 1:
     \   /
       G
 ```
-Node E is in violation. Need to prune one edge.  
-`eDist(E,G) = 4.24`  
-`eDist(E,C) = 5`   
-`eDist(E,A) = 4`  
-Prune [E,C]  
+
+E now has three neighbors: A, C, and G.
+
+```text
+eDist(E, A) = 4.00
+eDist(E, G) = 4.24
+eDist(E, C) = 5.00
+```
+
+E prunes C. For this toy example, the resulting Layer 1 graph is:
 
 ```text
 Layer 1:
@@ -261,19 +411,29 @@ Layer 1:
       G
 ```
 
-`eDist(G,E) = 4.24`  
-`eDist(G,C) = 7`  
-`eDist(G,A) = // lets assume > 7`  
+This gives the graph a useful regional path from A/C toward G/E.
 
-Move to node E and descend to Layer 0  
+Now continue toward Layer 0. Since E is closer to G than C or A, descend from E on Layer 1 to E on Layer 0.
 
-At Layer 0:  
-`A - B - C - D - E - F`  
-`eDist(G,E) = 4.24`  
-`eDist(G,F) = 2.24`  
-`eDist(G,D) = 4` 
-`eDist(G,C) = // lets assume > 4.24`
-M=2, pick [F,D]  
+At Layer 0, before inserting G:
+
+```text
+Layer 0:
+  A --- B --- C --- D --- E --- F
+```
+
+Distances from G:
+
+```text
+eDist(G, E) = 4.24
+eDist(G, F) = 2.24
+eDist(G, D) = 4.00
+eDist(G, C) = 7.00
+```
+
+With `M = 2`, G initially selects F and D.
+
+Before pruning:
 
 ```text
 Layer 0:
@@ -283,15 +443,19 @@ Layer 0:
                    \         /
                          G
 ```
-Node D is in violation.  
-D:[C,E,G]  
-`eDist(D,C) = ..` 
-`eDist(D,E) = ..` 
-`eDist(D,G) = .. // prunes this`  
 
-Layer 0: `A - B - C - D - E - F - G`  
+D now has three neighbors: C, E, and G.
 
-Current graph state:  
+```text
+eDist(D, C) = 3.00
+eDist(D, E) = 3.16
+eDist(D, G) = 4.00
+```
+
+D prunes G. F accepts G.
+
+After pruning:
+
 ```text
 Layer 2:
   A --- G
@@ -308,26 +472,41 @@ Layer 0:
   A --- B --- C --- D --- E --- F --- G
 ```
 
-### INSERT H = (9,1), max_layer = 0  
-At Layer 2:  
-`eDist(H,A) = 8`  
-`eDist(H,G) = 3.16`  
-Move to node G and descend to Layer 1 G node  
+---
 
-At Layer 1:  
-`eDist(H,G) = 3.16`  
-`eDist(H,C) = 8.54`  
-`eDist(H,E) = 4`  
-`eDist(H,A) = ... // assume its > 8.54` 
+## Insert H = (9, 1), max_layer = 0
 
-Move to G and descend to Layer 0's G  
+At Layer 2:
 
-At Layer 0:  
-`eDist(H,G) = 3.16`  
-`eDist(H,E) = 4`  
-`eDist(H,F) = 2.24`  
-...  
-Pick [G,F]  
+```text
+eDist(H, A) = 8.00
+eDist(H, G) = 3.16
+```
+
+Move to G and descend to G on Layer 1.
+
+At Layer 1:
+
+```text
+eDist(H, G) = 3.16
+eDist(H, E) = 4.00
+eDist(H, C) = 8.54
+```
+
+Neither E nor C is closer than G, so stay at G and descend to G on Layer 0.
+
+At Layer 0:
+
+```text
+eDist(H, G) = 3.16
+eDist(H, F) = 2.24
+eDist(H, E) = 4.00
+```
+
+With `M = 2`, H selects G and F.
+
+Before pruning:
+
 ```text
 Layer 0:
 
@@ -335,11 +514,35 @@ Layer 0:
                                 \   /
                                   H
 ```
-F is in violation.  
-`eDist(F,E) = 2.24`  
-`eDist(F,G) = 2.24`  
-`eDist(F,H) = 2.24`  
-They al tier. Pruned E.  
+
+F now has three neighbors: E, G, and H.
+
+```text
+eDist(F, E) = 2.24
+eDist(F, G) = 2.24
+eDist(F, H) = 2.24
+```
+
+All three tie.
+
+If we strictly keep only two neighbors and prune E, the graph becomes disconnected:
+
+```text
+Layer 0:
+
+  A --- B --- C --- D --- E     F --- G
+                                \   /
+                                  H
+```
+
+This disconnected graph is an artifact of the simplified toy rules:
+
+- `M = 2` is very small.
+- Tie pruning is arbitrary.
+- Real HNSW uses better neighbor-selection heuristics.
+- Real Layer 0 often allows more neighbors than upper layers.
+
+For the query-search walkthrough, we use a more stable teaching graph that preserves the local bridge through E-F and also connects H to F and G:
 
 ```text
 Layer 0:
@@ -348,21 +551,42 @@ Layer 0:
                                 \   /
                                   H
 ```
-Notice: Disconnected left and right chains. 
-Artifact of our simplified toy rules.  
-M=2 is very small. Real HNSW uses better neighbor-selection heuristics.  
-Real layer 0 often allow more neighbors than upper layers.  
-A more stable version would be: A - B - C - D - E - F - G - H  
 
-## Overall  
-* INSERT Vector → use upper layers to navigate close  
-* Descend by some node ID  
-* Search locally on the target layer  
-* Connect to selected neighbors  
-* Prune if neighbor list exceed capacity  
+You can think of this as allowing F to retain three Layer 0 neighbors in this toy example.
 
-# Query Search  
-`Q = (8.5,1.5)`  
+---
+
+# Overall Index-Creation Pattern
+
+```text
+Insert vector
+  -> use upper layers to navigate close to its region
+  -> descend by the same node ID
+  -> search locally on the target layer
+  -> connect to selected neighbors
+  -> prune if neighbor lists exceed capacity
+```
+
+Key tuning parameters:
+
+```text
+M = number of neighbors retained per node
+efConstruction = breadth of search during index construction
+efSearch = breadth of search during query execution
+```
+
+---
+
+# Query Search
+
+Query:
+
+```text
+Q = (8.5, 1.5)
+```
+
+For the search example, use this stable graph:
+
 ```text
 Layer 2:
   A --- G
@@ -373,32 +597,120 @@ Layer 1:
   C --- G
 
 Layer 0:
-  A --- B --- C --- D --- E --- F --- G --- H
+  A --- B --- C --- D --- E --- F --- G
+                                \   /
+                                  H
 ```
 
-Step1: Layer 2 greedy search   
-`eDist(Q,A) = 7.52` 
-`eDist(Q,G) = 2.55`  
-Move to G and descend to Layer 1.  
+## Brute-Force Ground Truth
 
-Layer 1:  
-`eDist(Q,G) = 2.55`  
-`eDist(Q,E) = 3.54`  
-`eDist(Q,C) = 7.91`  
+Distances from Q:
 
-Now descend to Layer 0 from G  
+```text
+eDist(Q, A) = 7.52
+eDist(Q, B) = 6.52
+eDist(Q, C) = 7.91
+eDist(Q, D) = 5.15
+eDist(Q, E) = 3.54
+eDist(Q, F) = 1.58
+eDist(Q, G) = 2.55
+eDist(Q, H) = 0.71
+```
 
-Layer 0:  
-`Layer 0: A - B - C - D - E - F - G - H`  
-Expanded search starting at node G.  
-efSearch = 4 // Explore about 4 promising candidates  
-k=2 // return the best 2  
-`eDist(Q,G) = 2.55`  
-`eDist(Q,F) = 1.58`  
-`eDist(Q,H) = 0.71`  
-1 more ...  
-Expand H neighbor, already explored. Expand F neighbor: G already explored.  
-`eDist(Q,E) = 3.54`  
+Exact top 2:
 
-Return top_k = 2 = [H,F]  
-**At production scale, the same also becomes: "checks 100s of nodes instead of millions"**  
+```text
+[H, F]
+```
+
+---
+
+## Step 1: Layer 2 Greedy Search
+
+Start at A.
+
+```text
+eDist(Q, A) = 7.52
+eDist(Q, G) = 2.55
+```
+
+G is closer, so move to G and descend to Layer 1.
+
+---
+
+## Step 2: Layer 1 Greedy Search
+
+At Layer 1, start from G.
+
+```text
+eDist(Q, G) = 2.55
+eDist(Q, E) = 3.54
+eDist(Q, C) = 7.91
+```
+
+Neither E nor C is closer than G, so stay at G and descend to Layer 0.
+
+---
+
+## Step 3: Layer 0 Expanded Search
+
+At Layer 0, start from G.
+
+```text
+efSearch = 4
+k = 2
+```
+
+Start with G:
+
+```text
+eDist(Q, G) = 2.55
+```
+
+Explore G's neighbors, F and H:
+
+```text
+eDist(Q, F) = 1.58
+eDist(Q, H) = 0.71
+```
+
+Now the best discovered candidates are:
+
+```text
+H: 0.71
+F: 1.58
+G: 2.55
+```
+
+Expand H. H's neighbors are F and G, which are already known.
+
+Expand F. F's neighbors include E, G, and H.
+
+```text
+eDist(Q, E) = 3.54
+```
+
+Now the candidate/result set contains approximately:
+
+```text
+H: 0.71
+F: 1.58
+G: 2.55
+E: 3.54
+```
+
+Return top `k = 2`:
+
+```text
+[H, F]
+```
+
+This matches the brute-force top-2 result.
+
+At production scale, the same idea becomes:
+
+```text
+HNSW checks hundreds of nodes instead of millions.
+```
+
+The upper layers get the search close to the right region. Layer 0 performs the fine-grained local search.
