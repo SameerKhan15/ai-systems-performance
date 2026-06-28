@@ -83,37 +83,42 @@ Layer 0:  A --- B
 ### INSERT D = (4,4), max_layer = 0  
 Start at layer 2. Since the layer only has a single node, descend to Layer 1's node A.  
 At Layer 1:  
-`eDist(D,A) = 4.24  
- eDist(D,C) =3`  
+`eDist(D,A) = 4.24`  
+`eDist(D,C) =3`  
 
 Since C is closer, move to that node and descend to Layer 0's node C.  
 
 At Layer 0:  
-`eDist(D,A) = 4.24  
- eDist(D,C) = 3  
- eDist(D,B) = 2.83`  
+`eDist(D,A) = 4.24`  
+`eDist(D,C) = 3`  
+`eDist(D,B) = 2.83`  
 
 `efConstruction = 3` - All three will be held in the candidate list.  
 
 With M=2, initially select [B,C]  
 
-`Layer 0: A - B - D 
-           -  -   -
-               C`  
+```text
+Layer 0:
+
+  A --- B --- D
+   \   |    /
+    \  |   /
+       C
+```
 Note that B now has 3 neighbours. Since M = 2, it violates that property. B should keep its closest two.  
-`eDist(B,A) = 1.41  
- eDist(B,C) = 2.24  
- eDist(B,D) = 2.83`  
+`eDist(B,A) = 1.41`  
+`eDist(B,C) = 2.24`  
+`eDist(B,D) = 2.83`  
 
 B prunes D. C also has 3 neighbours now: A, B, D  
-`eDist(C,A) = 2.24  
- eDist(C,B) = 3.0  
- eDist(C,D) = 3.0`  
+`eDist(C,A) = 2.24`  
+`eDist(C,B) = 3.0`  
+`eDist(C,D) = 3.0`  
 
 Tie between B and D. Retain D.  
-`Layer2: A  
- Layer1: A - C  
- Layer0: A - B - C - D`  
+`Layer2: A`  
+`Layer1: A - C`  
+`Layer0: B - A - C - D`  
 
 ### INSERT E = (5,1), max_layer = 1  
 Start at layer 2. Descend to Layer 1's node A.  
