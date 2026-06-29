@@ -30,11 +30,11 @@ Answer:
 ## Lab#4: Vary the Window Size  
 Keep the implementation identical.  
 Only change:  
-`window = 16`
-`window = 32`
-`window = 64`
-`window = 128`
-`window = 256`
+`window = 16`  
+`window = 32`  
+`window = 64`  
+`window = 128`  
+`window = 256`  
 
 Now plot:  
 window size
@@ -50,28 +50,28 @@ See the tradeoff between context and cost.
 
 ## Lab#5: Multi-Head Attention  
 Right now we have 1 head. Change to:  
-`2 heads`
-`4 heads`
-`8 heads`
-`16 heads`
+`2 heads`  
+`4 heads`  
+`8 heads`  
+`16 heads`  
 
 Measure:  
 * runtime  
-* GPU memory  
-* projection costs  
+* GPU memory    
+* projection costs    
 
 Understand why multiple heads exist.
 
 ## Lab#6: Grouped Query Attention (GQA)  
 Instead of:  
-`8 Query Heads`
-`8 Key Heads`
-`8 Value Heads`
+`8 Query Heads`  
+`8 Key Heads`  
+`8 Value Heads`  
 
 experiment with  
-`8 Query Heads`
-`2 Key Heads`
-`2 Value Heads`
+`8 Query Heads`  
+`2 Key Heads`  
+`2 Value Heads`  
 
 Measure the difference.  
 This leads directly into modern LLM inference.  
@@ -79,33 +79,33 @@ This leads directly into modern LLM inference.
 ## Lab#7: KV Cache  
 The lab should answer: "Why does inference become so much faster?"  
 Measure  
-`No KV Cache`
-`vs`
-`KV Cache` 
+`No KV Cache`  
+`vs`  
+`KV Cache`  
 
 ## Lab#8: FlashAttention  
 Appreciate
-* tiling
-* SRAM
-* memory traffic
-* avoiding materializing QKᵀ
+* tiling  
+* SRAM  
+* memory traffic  
+* avoiding materializing QKᵀ  
 
 ## Lab#9: Profilers (and compare multiple algorithms) 
-* `torch.profiler`
-* `nsys`
-* `Roofline`
-* `ncu`
+* `torch.profiler`  
+* `nsys`  
+* `Roofline`  
+* `ncu`  
 
 ## Repository Structure  
-`01_rope_geometry/`
-`02_full_attention_profile/`
-`03_sliding_window_attention/`
-`04_window_size_scaling/`
-`05_multi_head_attention/`
-`06_grouped_query_attention/`
-`07_kv_cache/`
-`08_flashattention/`
-`09_torch_profiler/`
-`10_nsys/`
-`11_roofline/`
-`12_ncu/`
+`01_rope_geometry/`  
+`02_full_attention_profile/`  
+`03_sliding_window_attention/`  
+`04_window_size_scaling/`  
+`05_multi_head_attention/`  
+`06_grouped_query_attention/`  
+`07_kv_cache/`  
+`08_flashattention/`  
+`09_torch_profiler/`  
+`10_nsys/`  
+`11_roofline/`  
+`12_ncu/`  
