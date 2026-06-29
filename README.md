@@ -111,3 +111,26 @@ Appreciate
 `10_nsys/`  
 `11_roofline/`  
 `12_ncu/`  
+
+## Why this order is so powerful  
+      RoPE
+        ↓
+    Attention
+        ↓
+    Sliding Window
+        ↓
+    Multi-Head
+        ↓
+       GQA
+        ↓
+    KV Cache
+        ↓
+    FlashAttention
+
+Learning why each innovation was invented by first experiencing the limitation of the previous approach:  
+* Full attention → quadratic cost.  
+* Sliding window → less memory, but limited context.  
+* Multi-head attention → richer representations.  
+* GQA → similar quality with lower inference cost.  
+* KV cache → avoid recomputing keys and values during generation.  
+* FlashAttention → keep memory traffic under control while preserving full attention.  
