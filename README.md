@@ -134,3 +134,35 @@ Learning why each innovation was invented by first experiencing the limitation o
 * GQA → similar quality with lower inference cost.  
 * KV cache → avoid recomputing keys and values during generation.  
 * FlashAttention → keep memory traffic under control while preserving full attention.  
+
+## After each lab, spend some time writing a short document  
+Lab Summary
+
+Problem
+----------
+What limitation are we solving?
+
+Algorithm
+----------
+How does it work?
+
+Complexity
+----------
+Time complexity
+Memory complexity
+
+Performance Results
+-------------------
+Charts
+
+Key Takeaways
+-------------
+What surprised me?
+
+Connections
+-----------
+How does this relate to the previous lab?
+
+Questions
+---------
+What don't I fully understand yet?
