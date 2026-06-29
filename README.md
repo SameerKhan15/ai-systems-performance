@@ -1,4 +1,6 @@
 # Repository on learnings and experiments on AI Systems Performance Engineering
+## Lab#1: RoPE Positional Encoding   
+## Lab#2: Attention   
 ## Lab#3: Sliding Window Attention  
 We already have:  
 `scores = Q @ K.T`  
