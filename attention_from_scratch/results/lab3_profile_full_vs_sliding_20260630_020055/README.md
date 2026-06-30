@@ -1,6 +1,6 @@
 # Benchmark Analysis  
 ## FULL VS SLIDING COMPARISON MATRIX  
-#################################### 
+####################################  
 FULL VS SLIDING COMPARISON  
 ####################################    
        N |  full attn ms |  slide attn ms |  attn speedup |   full entries |  slide entries | entry ratio | full score MB | slide score MB  
