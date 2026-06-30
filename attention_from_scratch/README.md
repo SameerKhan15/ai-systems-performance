@@ -139,10 +139,10 @@ and Nsight Compute for kernel saturation.
 `which ncu`  
 `ncu --version`  
 
-`python3 - << 'EOF'    
-import torch    
-print("cuda_available:", torch.cuda.is_available())  
-print("gpu:", torch.cuda.get_device_name(0))  
-print("torch:", torch.__version__)  
-print("cuda:", torch.version.cuda)  
-EOF`  
+`python3 - << 'EOF'`    
+`import torch`    
+`print("cuda_available:", torch.cuda.is_available())`  
+`print("gpu:", torch.cuda.get_device_name(0))`  
+`print("torch:", torch.__version__)`  
+`print("cuda:", torch.version.cuda)`  
+`EOF`    
