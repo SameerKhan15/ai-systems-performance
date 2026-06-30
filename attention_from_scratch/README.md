@@ -74,3 +74,75 @@ Instead of looping:
 `for token in tokens: q = token @ Wq`  
 PyTorch performs one large batched operation `Q = X @ Wq`  
 GPUs can execute this extremely efficiently using highly optimized linear algebra kernels.  
+
+## Profiling Stack  
+`profile_lab3_full_vs_sliding.sh`  
+Put it next to:  
+`compare_full_vs_sliding_attention.py`  
+
+Then run:  
+`chmod +x profile_lab3_full_vs_sliding.sh`  
+`./profile_lab3_full_vs_sliding.sh`  
+
+### What this profiling package does  
+#### Pass 1 — Script counters and benchmark plots  
+This runs the comparison script normally and collects:  
+`full attention score entries      = N²`  
+`sliding attention score entries   ≈ N × local_window_width`  
+`full score tensor memory          = O(N²)`  
+`sliding score tensor memory       = O(N × window)`  
+`median runtime`  
+`p95 runtime`   
+`peak GPU memory`  
+**This is where to prove the math shape.**  
+
+#### Pass 2 — Nsight Systems  
+This runs:  
+`nsys profile --trace=cuda,nvtx,osrt ...`  
+
+The comparison script already has NVTX labels, so the Nsight Systems timeline should show readable ranges like:  
+`full/seq_len=8192/scores_NxN`  
+`full/seq_len=8192/softmax_NxN`  
+`full/seq_len=8192/weights_at_V_NxN`  
+
+`sliding_r2/seq_len=8192/scores_Nx5`  
+`sliding_r2/seq_len=8192/softmax_Nx5`  
+`sliding_r2/seq_len=8192/weights_at_V_Nx5`  
+
+Nsight Systems is the right tool for timeline-level questions: wall-clock growth, tiny kernels, launch overhead, CPU/GPU gaps, and overlap. 
+NVIDIA’s docs describe NVTX ranges as visible in the timeline and projected onto GPU activity, which is exactly why we added those labels.  
+
+#### Pass 3 — Nsight Compute  
+This runs one representative sequence length under ncu, defaulting to:  
+NCU_SEQ_LEN=8192  
+NCU_SET=full  
+
+Nsight Compute is the right tool for kernel-level questions: SM throughput, occupancy, memory throughput, and whether kernels are compute-bound or memory-bound.  
+
+Best analysis order:  
+* comparison_score_entries_log.png  
+* comparison_attention_only_runtime.png  
+* comparison_memory_scaling_log.png  
+* Nsight Systems screenshot around seq_len=8192  
+* Nsight Compute console summary for seq_len=8192  
+
+What we are trying to prove (for Lab#3 specifically):  
+Full attention grows in score entries and score memory as N².  
+Sliding-window attention grows as N × window. Runtime may not perfectly follow operation count on an A100 because small local-window kernels   
+can be highly parallel and launch/overhead dominated, so we use script counters for algorithmic complexity, Nsight Systems for timeline behavior,  
+and Nsight Compute for kernel saturation.  
+
+### Before Profiling execute the following    
+`which nsys`  
+`nsys --version`  
+
+`which ncu`  
+`ncu --version`  
+
+`python3 - << 'EOF'    
+import torch    
+print("cuda_available:", torch.cuda.is_available())  
+print("gpu:", torch.cuda.get_device_name(0))  
+print("torch:", torch.__version__)  
+print("cuda:", torch.version.cuda)  
+EOF`  

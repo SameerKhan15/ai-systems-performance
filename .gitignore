@@ -2,3 +2,13 @@
 .idea/
 __pycache__/
 *.pyc
+# Generated benchmark/profiling artifacts
+results/
+**/results/
+*.nsys-rep
+*.ncu-rep
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.qdrep
+*.log
