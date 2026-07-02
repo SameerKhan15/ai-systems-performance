@@ -54,7 +54,7 @@ Sliding-window attention removes the quadratic N² term.
 
 `The total attention work grows roughly linearly with N, but on this A100 benchmark the wall-clock time remains nearly flat because the operation is small and highly parallel.`  
 
-## Nore on what the chart shows  
+## More on what the chart shows  
 The windowed QK median line is almost flat, around roughly:  
 `~0.14 ms`  
 from small sequence lengths all the way to 8192.  
