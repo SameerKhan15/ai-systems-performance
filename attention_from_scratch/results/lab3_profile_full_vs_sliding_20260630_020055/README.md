@@ -301,4 +301,48 @@ That is why the runtime speedup is much smaller than the score-entry reduction.
 
 **Lower asymptotic complexity does not automatically mean proportional wall-clock speedup unless the kernel implementation is also efficient.**  
 
+# Is sliding window attention technique used in modern LLMs?  
+Yes — sliding-window attention is used in modern LLMs, but usually as part of a hybrid attention design, not always as the only attention mechanism everywhere.  
+
+The most relevant examples:  
+
+## Mistral 7B  
+Mistral 7B explicitly uses Sliding Window Attention, along with Grouped-Query Attention. The Mistral paper says it uses GQA for faster inference and SWA to handle longer sequences with reduced inference cost.  
+
+Mistral’s own announcement explains the stacked-layer intuition nicely: token i at layer k attends only to tokens in its local window from the previous layer, but because previous-layer tokens themselves attended to earlier windows, higher layers can indirectly access information further back than a single window.  
+That is important: sliding window does not mean the model is completely blind beyond the window. Information can propagate through layers.  
+
+## Gemma 2  
+Gemma 2 uses a hybrid local/global pattern. The Gemma 2 report says it alternates between local sliding-window attention and global attention layers. The local sliding-window size is 4096 tokens, while global attention spans 8192 tokens.  
+
+So Gemma 2 is a great modern example of this idea:  
+`some layers: local sliding-window attention`  
+`some layers: global attention`  
+That gives a tradeoff: lower cost from local attention, but still occasional full/global mixing.  
+
+## Why modern LLMs use it  
+The reason is exactly what our lab showed:  
+`full attention score entries     = N²`  
+`sliding attention score entries  ≈ N × window`  
+
+For long context, full attention becomes expensive in both compute and memory. Sliding-window attention reduces the attention matrix from:  
+[N, N] to [N, window_width]  
+
+Our benchmark with radius 2 showed the same principle in miniature:  
+`N=8192 full entries    = 67,108,864`  
+`N=8192 sliding entries = 40,954`  
+In real models, the window is much larger, such as thousands of tokens, but the scaling idea is the same.  
+
+### But there is a tradeoff  
+Pure sliding-window attention can weaken long-range retrieval, because a token cannot directly attend to every previous token. That is why many models combine it with one or more of these:  
+* `global attention layers`  
+* `attention sinks / special retained tokens`  
+* `longer local windows`  
+* `KV cache tricks / rolling buffers`  
+* `RoPE scaling`  
+* `FlashAttention-style kernels`  
+
+So the correct mental model is:  
+**Sliding-window attention is a real production technique, but modern LLMs usually use it carefully, often mixed with global attention or other mechanisms,  
+because pure local attention improves efficiency but can hurt long-range recall.**  
 
