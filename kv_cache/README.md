@@ -36,7 +36,7 @@ Instead we do:
 * Step3: Compute `K6 V6` and store them  
 
 Eventually we have:  
-KV Cache
+KV Cache  
 `K1 V1`  
 `K2 V2`  
 `K3 V3`  
@@ -44,16 +44,18 @@ KV Cache
 `K5 V5`  
 `K6 V6`  
 
-When token 7 arrives, we compute K6, V6 and Q6, and simply attend against:  
+When token 7 arrives, we compute K7, V7 and Q7, and simply attend against:  
 `K1,V1`  
 `K2,V2`  
 `K3,V3`  
 `K4,V4`  
 `K5,V5`  
+`K6,V6`  
+
 No previous Keys or Values are recomputed. **That is the whole idea of KV caching.**  
 
 ## Why don't we cache Q?  
-Because Queries are only used once. At generation step for token 6, we compute Q6, perform attention and then throw Q6 away. Next step we compute Q7 instead.  
+Because Queries are only used once. At generation step for token 7, we compute Q7, perform attention and then throw Q7 away. Next step we compute Q8 instead.  
 Queries never need to be reused. Keys and Values do.  
 
 # What gets stored?  
@@ -84,54 +86,62 @@ Each head independently creates `Q_i, K_i, V_i` for head i.
 So we end up storing  
 **Head 1**  
 `K1`  
-`V1`
-**Head 2**
+`V1`  
+**Head 2**  
 `K2`  
-`V2`
-...
-
-**Head 32**
+`V2`  
+...  
+  
+**Head 32**  
 `K32`  
 `V32`  
 Every token stores all of these.  
 
 # MLA intuition  
 The key insight is: Do we really need to store every full-sized Key and Value?  
+
 DeepSeek's answer was NO.  
+
 Instead of storing Full K, Full V, store a compressed representation. Think of it like image compression. Instead of storing 4000 numbers, store 256 numbers that preserve most of the important information.  
+
 This compressed vector is called the latent KV. During attention, the model reconstructs what it needs from this latent representation. So instead of caching K,V, it caches Latent KV, which is much smaller.  
+
 "Latent" means a compressed internal representation. It's similar to an autoencoder:  
-`Large vector`
-     ↓
- `Encoder`
-     ↓
-`Small latent vector`
-     ↓
- `Decoder`  
-     ↓
+
+`Large vector`  
+     ↓  
+ `Encoder`  
+     ↓  
+`Small latent vector`  
+     ↓  
+ `Decoder`    
+     ↓  
 `Approximate original vector`  
+
 MLA follows this general idea, although the exact mathematical implementation differs from a classic autoencoder.  
 
 ## Why is RoPE tricky?  
 This is the subtle part. Normally  
 `RoPE`  
- ↓
-`K`
+ ↓  
+`K`  
 `Q`  
 
 If we applied RoPE directly to the cached keys, the cached representation would become tied to positional transformations in a way that defeats the purpose of storing a reusable compressed latent.  
+
 Instead, DeepSeek separates the information into `Content information + Position information`.  The latent cache stores mostly content. Position is handled by a much smaller, separate component that can be recomputed efficiently.  
+
 This lets the large cached latent remain reusable while still allowing attention to incorporate positional information.  
 
 ## Visual picture  
 Standard Multi-Head Attention  
 `Input`  
-   ↓
+   ↓  
   `Q`  
   `K`  
   `V`  
-   ↓
- `Store`
+   ↓  
+ `Store`  
   `K`  
   `V`  
 
@@ -139,19 +149,19 @@ MLA
 `Input`  
    ↓  
 `Compress`  
-   ↓
+   ↓  
 `Latent KV`  
    ↓  
-`Store`
-`Latent KV`  
+`Store`  
+`Latent KV`    
 
 Later  
-`Latent KV`
-    ↓
-`Expand`
-    ↓
+`Latent KV`  
+    ↓  
+`Expand`  
+    ↓  
 `Approximate K`  
-`Approximate V`
+`Approximate V`  
     ↓  
 `Attention`  
 Much less memory is stored.  
@@ -166,8 +176,6 @@ Reducing the amount of KV data that must be stored and read can significantly im
 * Lab 3: Compare standard Multi-Head Attention with Multi-Query Attention and Grouped-Query Attention to see how sharing keys/values reduces cache size  
 * Lab 4: Implement a simplified version of MLA using low-rank projections to understand the compression idea  
 Profile memory usage and runtime on a GPU to quantify the tradeoffs  
-
-
 
 
  
