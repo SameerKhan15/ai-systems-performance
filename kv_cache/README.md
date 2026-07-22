@@ -177,7 +177,41 @@ Reducing the amount of KV data that must be stored and read can significantly im
 * Lab 4: Implement a simplified version of MLA using low-rank projections to understand the compression idea  
 Profile memory usage and runtime on a GPU to quantify the tradeoffs  
 
+Overall, we are trying to understand LLM inference systems math deeply enough that later topics like GQA, MLA, FlashAttention, paged KV cache, memory bandwidth bottlenecks, and GPU profiling make sense.  
+Understanding Transformer architecture math is fairly considered medium to hard.  
 
+The reason is that Transformer math has several layers of difficulty stacked together:  
+```text
+1. **Linear algebra**
+
+   $XW_Q,\ XW_K,\ XW_V,\ QK^T,\ \text{softmax},\ \text{attention\_weights} \cdot V$
+
+2. **Tensor shapes**
+
+   
+   [seq_len, embed_dim]
+   [num_heads, seq_len, head_dim]
+   [query_len, key_len]
+   [batch, heads, tokens, dim]  
+
+3. Autoregressive generation  
+token 1
+token 2
+token 3
+...
+one new output per step  
+
+4. Training vs inference difference  
+Training processes whole sequences.  
+Inference often processes one new token at a time.  
+
+5. Systems implications  
+compute saved
+memory added
+bandwidth pressure
+cache growth
+latency per token   
+   ```
  
 
 
