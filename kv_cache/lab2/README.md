@@ -522,25 +522,729 @@ So:
 `num_heads = 2`  
 `head_dim  = 2048`  
 
-For each head:  
 **Projection:**  
-X = [5,4096] 
-Wq = [4096,2048]  
-Wk = [4096,2048]  
-Wv = [4096,2048]  
 
-Q = XWq = [5,2048]  
-This is 5 x 2048 = 10,240 dot products per head  
-Each dot product length is: 4096  
-So per head:  
-10,240 × 4096 = 41.9M MACs  
+The script uses one full projection matrix for each of Q, K, and V:
 
-For 2 heads, if each head has its own Wq:  
-`2×41.9M = ~83M MACs`  
+```text
+X  = [5, 4096]
+Wq = [4096, 4096]
+Wk = [4096, 4096]
+Wv = [4096, 4096]
+```
 
-**~83M Q-projection MACs total**  
+For Q:
 
-Same calculation would apply to K and V projections.  
-`Hence, total Q/K/V projection MACs = 3 × ~83.9M = ~251.7M MACs`    
+```text
+Q = XWq = [5, 4096]
+```
+
+This output contains:
+
+```text
+5 × 4096 = 20,480 scalar output elements
+```
+
+Each scalar output is a dot product of length 4096. Therefore:
+
+$$
+5 \times 4096 \times 4096
+= 83{,}886{,}080\ \text{MACs}
+$$
+
+So:
+
+```text
+Q projection = 83,886,080 MACs ≈ 83.89M
+K projection = 83,886,080 MACs ≈ 83.89M
+V projection = 83,886,080 MACs ≈ 83.89M
+```
+
+Total Q/K/V projection work is:
+
+$$
+3 \times 83{,}886{,}080
+= 251{,}658{,}240\ \text{MACs}
+\approx 251.66\text{M MACs}
+$$
+
+Equivalently, the 4096 output features can be viewed as two head-sized output blocks of 2048 features each. That per-head view produces the same total MAC count.
 
 **Attention:**  
+
+The script counts two attention matrix multiplications:
+
+1. `Q @ K^T` to produce attention scores
+2. `attention_weights @ V` to aggregate values
+
+##### Attention-score MACs: `Q @ K^T`
+
+For each head:
+
+```text
+Q head shape   = [5, 2048]
+K head shape   = [5, 2048]
+K^T shape      = [2048, 5]
+score shape    = [5, 5]
+```
+
+There are:
+
+```text
+5 × 5 = 25 dot products per head
+```
+
+Each dot product has length:
+
+```text
+head_dim = 2048
+```
+
+Therefore, for one head:
+
+```text
+25 × 2048 = 51,200 MACs
+```
+
+For two heads:
+
+```text
+2 × 51,200 = 102,400 attention-score MACs
+```
+
+Using the script formula:
+
+$$
+\begin{aligned}
+\text{score MACs}
+&= \text{num\_heads} \times \text{query\_len} \times \text{key\_len} \times \text{head\_dim} \\
+&= 2 \times 5 \times 5 \times 2048 \\
+&= 102{,}400
+\end{aligned}
+$$
+
+##### Attention-value MACs: `attention_weights @ V`
+
+For each head:
+
+```text
+attention_weights shape = [5, 5]
+V head shape             = [5, 2048]
+output shape             = [5, 2048]
+```
+
+There are:
+
+```text
+5 × 2048 = 10,240 output elements per head
+```
+
+Each output element combines five values, so:
+
+```text
+10,240 × 5 = 51,200 MACs per head
+```
+
+For two heads:
+
+```text
+2 × 51,200 = 102,400 attention-value MACs
+```
+
+This matches the script formula:
+
+$$
+\begin{aligned}
+\text{value MACs}
+&= \text{num\_heads} \times \text{query\_len} \times \text{key\_len} \times \text{head\_dim} \\
+&= 2 \times 5 \times 5 \times 2048 \\
+&= 102{,}400
+\end{aligned}
+$$
+
+Therefore, total attention work without cache at step 5 is:
+
+$$
+102{,}400 + 102{,}400 = 204{,}800\ \text{MACs}
+$$
+
+##### Output projection: `Wo`
+
+The script also applies the output projection to all five prefix positions:
+
+```text
+merged attention output = [5, 4096]
+Wo                      = [4096, 4096]
+output                  = [5, 4096]
+```
+
+Therefore:
+
+$$
+5 \times 4096 \times 4096
+= 83{,}886{,}080\ \text{MACs}
+$$
+
+##### Total work without cache at step 5
+
+| Component | MACs |
+|---|---:|
+| Q projection | 83,886,080 |
+| K projection | 83,886,080 |
+| V projection | 83,886,080 |
+| O projection | 83,886,080 |
+| Attention scores: `Q @ K^T` | 102,400 |
+| Attention values: `weights @ V` | 102,400 |
+| **Total** | **335,749,120** |
+
+So:
+
+```text
+Total projection MACs = 4 × 83,886,080
+                      = 335,544,320
+
+Total attention MACs  = 102,400 + 102,400
+                      = 204,800
+
+Total step MACs       = 335,544,320 + 204,800
+                      = 335,749,120
+                      ≈ 335.75M MACs
+```
+
+The attention score tensor contains:
+
+```text
+2 heads × 5 queries × 5 keys = 50 score elements
+```
+
+For `float32`, this uses:
+
+```text
+50 × 4 bytes = 200 bytes
+```
+
+#### With KV cache
+
+At step 5, only the newest token is projected:
+
+```text
+query_len = 1
+key_len   = 5
+num_heads = 2
+head_dim  = 2048
+embed_dim = 4096
+```
+
+##### Q, K, and V projections
+
+For each projection:
+
+```text
+X_new = [1, 4096]
+W     = [4096, 4096]
+result = [1, 4096]
+```
+
+Therefore, each projection costs:
+
+$$
+1 \times 4096 \times 4096
+= 16{,}777{,}216\ \text{MACs}
+$$
+
+For Q, K, and V together:
+
+$$
+3 \times 16{,}777{,}216
+= 50{,}331{,}648\ \text{MACs}
+$$
+
+##### Attention-score MACs: `Q5 @ K_cache^T`
+
+For each head:
+
+```text
+Q5 head shape       = [1, 2048]
+K_cache head shape  = [5, 2048]
+score-row shape     = [1, 5]
+```
+
+There are five dot products per head, each of length 2048:
+
+```text
+5 × 2048 = 10,240 MACs per head
+```
+
+For two heads:
+
+```text
+2 × 10,240 = 20,480 attention-score MACs
+```
+
+Using the script formula:
+
+$$
+2 \times 1 \times 5 \times 2048
+= 20{,}480\ \text{MACs}
+$$
+
+##### Attention-value MACs: `attention_weights @ V_cache`
+
+The attention weights have shape `[1, 5]` per head and aggregate five cached value vectors, each of length 2048.
+
+Therefore:
+
+$$
+2 \times 1 \times 5 \times 2048
+= 20{,}480\ \text{MACs}
+$$
+
+Total attention work with cache at step 5 is:
+
+$$
+20{,}480 + 20{,}480
+= 40{,}960\ \text{MACs}
+$$
+
+##### Output projection: `Wo`
+
+Only the newest token's attention output is projected:
+
+$$
+1 \times 4096 \times 4096
+= 16{,}777{,}216\ \text{MACs}
+$$
+
+##### Total work with KV cache at step 5
+
+| Component | MACs |
+|---|---:|
+| Q projection | 16,777,216 |
+| K projection | 16,777,216 |
+| V projection | 16,777,216 |
+| O projection | 16,777,216 |
+| Attention scores: `Q_new @ K_cache^T` | 20,480 |
+| Attention values: `weights @ V_cache` | 20,480 |
+| **Total** | **67,149,824** |
+
+So:
+
+```text
+Total projection MACs = 4 × 16,777,216
+                      = 67,108,864
+
+Total attention MACs  = 20,480 + 20,480
+                      = 40,960
+
+Total step MACs       = 67,108,864 + 40,960
+                      = 67,149,824
+                      ≈ 67.15M MACs
+```
+
+The attention score tensor contains:
+
+```text
+2 heads × 1 query × 5 keys = 10 score elements
+```
+
+For `float32`, this uses:
+
+```text
+10 × 4 bytes = 40 bytes
+```
+
+### Step-5 compute comparison
+
+| Metric | Without cache | With KV cache | Improvement |
+|---|---:|---:|---:|
+| Q projected tokens | 5 | 1 | 5× less work |
+| K projected tokens | 5 | 1 | 5× less work |
+| V projected tokens | 5 | 1 | 5× less work |
+| O projected tokens | 5 | 1 | 5× less work |
+| Projection MACs | 335,544,320 | 67,108,864 | 5× lower; 80% reduction |
+| Attention-score MACs | 102,400 | 20,480 | 5× lower; 80% reduction |
+| Attention-value MACs | 102,400 | 20,480 | 5× lower; 80% reduction |
+| Total attention MACs | 204,800 | 40,960 | 5× lower; 80% reduction |
+| **Total MACs at step 5** | **335,749,120** | **67,149,824** | **5× lower; 80% reduction** |
+| Attention score elements | 50 | 10 | 5× lower; 80% reduction |
+
+A 5× reduction means the cached version performs:
+
+$$
+\frac{1}{5} = 20\%
+$$
+
+of the original work, or an:
+
+$$
+1 - \frac{1}{5} = 80\%
+$$
+
+reduction in MACs at step 5.
+
+This exact 5× relationship is not accidental. At generation step $t$, this script's no-cache path does exactly $t$ times the projection and attention work of its cached path.
+
+This is a MAC-count comparison, not a guarantee of exactly 5× lower wall-clock time; kernel-launch overhead, memory behavior, and implementation efficiency also affect measured runtime.
+
+### Step-5 memory accounting from the script
+
+Assume:
+
+```text
+dtype       = float32
+bytes/value = 4
+embed_dim   = 4096
+num_heads   = 2
+```
+
+#### Without cache
+
+The script retains no persistent KV cache:
+
+```text
+persistent KV cache = 0 bytes
+```
+
+Its temporary Q/K/V storage at this step is:
+
+$$
+3 \times 5 \times 4096 \times 4
+= 245{,}760\ \text{bytes}
+= 240\ \text{KiB}
+$$
+
+Its temporary attention-score storage is:
+
+$$
+2 \times 5 \times 5 \times 4
+= 200\ \text{bytes}
+$$
+
+#### With KV cache
+
+The active persistent K and V cache through token 5 is:
+
+$$
+2 \times 5 \times 4096 \times 4
+= 163{,}840\ \text{bytes}
+= 160\ \text{KiB}
+$$
+
+The leading factor of 2 represents:
+
+```text
+one K cache + one V cache
+```
+
+Temporary Q/K/V storage for only the new token is:
+
+$$
+3 \times 1 \times 4096 \times 4
+= 49{,}152\ \text{bytes}
+= 48\ \text{KiB}
+$$
+
+Temporary attention-score storage is:
+
+$$
+2 \times 1 \times 5 \times 4
+= 40\ \text{bytes}
+$$
+
+| Memory recorded at step 5 | Without cache | With KV cache |
+|---|---:|---:|
+| Persistent active KV cache | 0 B | 163,840 B = 160 KiB |
+| Temporary Q/K/V tensors | 245,760 B = 240 KiB | 49,152 B = 48 KiB |
+| Temporary attention scores | 200 B | 40 B |
+
+The cached path deliberately trades persistent linear KV-cache memory for much lower recomputation and smaller temporary tensors.
+
+> The implementation preallocates storage for `max_steps`, but `persistent_kv_cache_bytes` records the logically active portion through the current step. At the final step of a five-token run, the allocated and active sizes are the same.
+
+### Cumulative calculations across all five generation steps
+
+The script's counters accumulate work across steps 1 through 5.
+
+#### Useful sums
+
+$$
+1 + 2 + 3 + 4 + 5 = 15
+$$
+
+$$
+1^2 + 2^2 + 3^2 + 4^2 + 5^2 = 55
+$$
+
+#### Without cache: cumulative projections
+
+At each successive step, the script projects 1, 2, 3, 4, and 5 tokens.
+
+Therefore, each of Q, K, V, and O processes:
+
+```text
+15 projected token vectors
+```
+
+MACs for each projection type:
+
+$$
+15 \times 4096 \times 4096
+= 251{,}658{,}240
+$$
+
+Across Q, K, V, and O:
+
+$$
+4 \times 251{,}658{,}240
+= 1{,}006{,}632{,}960\ \text{projection MACs}
+$$
+
+#### Without cache: cumulative attention
+
+The score work across the five steps is proportional to:
+
+$$
+1^2 + 2^2 + 3^2 + 4^2 + 5^2 = 55
+$$
+
+Therefore:
+
+$$
+\begin{aligned}
+\text{attention-score MACs}
+&= 2 \times 2048 \times 55 \\
+&= 225{,}280
+\end{aligned}
+$$
+
+Attention-value MACs are the same:
+
+$$
+225{,}280
+$$
+
+Total cumulative attention MACs:
+
+$$
+225{,}280 + 225{,}280
+= 450{,}560
+$$
+
+Total cumulative MACs without cache:
+
+$$
+1{,}006{,}632{,}960 + 450{,}560
+= 1{,}007{,}083{,}520
+$$
+
+#### With KV cache: cumulative projections
+
+The cached path projects exactly one new token at each of five steps.
+
+Therefore, each of Q, K, V, and O processes:
+
+```text
+5 projected token vectors
+```
+
+MACs for each projection type:
+
+$$
+5 \times 4096 \times 4096
+= 83{,}886{,}080
+$$
+
+Across Q, K, V, and O:
+
+$$
+4 \times 83{,}886{,}080
+= 335{,}544{,}320\ \text{projection MACs}
+$$
+
+#### With KV cache: cumulative attention
+
+At steps 1 through 5, the newest query attends to 1, 2, 3, 4, and 5 cached keys.
+
+Therefore:
+
+$$
+\begin{aligned}
+\text{attention-score MACs}
+&= 2 \times 2048 \times (1+2+3+4+5) \\
+&= 2 \times 2048 \times 15 \\
+&= 61{,}440
+\end{aligned}
+$$
+
+Attention-value MACs are the same:
+
+$$
+61{,}440
+$$
+
+Total cumulative attention MACs:
+
+$$
+61{,}440 + 61{,}440
+= 122{,}880
+$$
+
+Total cumulative MACs with KV cache:
+
+$$
+335{,}544{,}320 + 122{,}880
+= 335{,}667{,}200
+$$
+
+### Cumulative five-step counter summary
+
+| Metric | Without cache | With KV cache | Reduction |
+|---|---:|---:|---:|
+| Q projected token-count | 15 | 5 | 66.7% |
+| K projected token-count | 15 | 5 | 66.7% |
+| V projected token-count | 15 | 5 | 66.7% |
+| O projected token-count | 15 | 5 | 66.7% |
+| Projection MACs | 1,006,632,960 | 335,544,320 | 66.7% |
+| Attention-score MACs | 225,280 | 61,440 | 72.7% |
+| Attention-value MACs | 225,280 | 61,440 | 72.7% |
+| Attention score elements | 110 | 30 | 72.7% |
+| **Total MACs** | **1,007,083,520** | **335,667,200** | **66.7%** |
+| Final persistent KV cache | 0 B | 163,840 B | additional persistent memory |
+
+The cumulative total-work speedup is:
+
+$$
+\frac{1{,}007{,}083{,}520}{335{,}667{,}200}
+\approx 3.00024\times
+$$
+
+So over the complete five-step run, KV caching performs approximately one-third of the total MACs, which is approximately a 66.7% reduction.
+
+The attention-only cumulative speedup is larger:
+
+$$
+\frac{450{,}560}{122{,}880}
+= 3.6667\times
+$$
+
+or a 72.7% reduction in attention MACs.
+
+The total is very close to 3× rather than 3.67× because, at these dimensions and this short sequence, the large projection matrices dominate the total operation count.
+
+### General formulas represented by the script
+
+Let:
+
+```text
+D  = embed_dim
+H  = num_heads
+Dh = head_dim
+t  = current generation step
+T  = total number of generation steps
+```
+
+Since:
+
+$$
+H \times D_h = D
+$$
+
+#### Work at a single step `t`
+
+Without cache:
+
+$$
+\text{projection MACs} = 4tD^2
+$$
+
+$$
+\text{attention MACs} = 2Ht^2D_h = 2t^2D
+$$
+
+$$
+\boxed{\text{total no-cache MACs at step }t = 4tD^2 + 2t^2D}
+$$
+
+With KV cache:
+
+$$
+\text{projection MACs} = 4D^2
+$$
+
+$$
+\text{attention MACs} = 2H(1)(t)D_h = 2tD
+$$
+
+$$
+\boxed{\text{total cached MACs at step }t = 4D^2 + 2tD}
+$$
+
+The ratio is exactly:
+
+$$
+\frac{4tD^2 + 2t^2D}{4D^2 + 2tD}
+= t
+$$
+
+Therefore, for this implementation:
+
+$$
+\boxed{\text{step-}t\text{ compute speedup from KV cache} = t\times}
+$$
+
+#### Work across all steps `1..T`
+
+Without cache:
+
+$$
+\text{projection MACs}
+= 4D^2\sum_{t=1}^{T}t
+= 4D^2\frac{T(T+1)}{2}
+= O(T^2)
+$$
+
+$$
+\text{attention MACs}
+= 2D\sum_{t=1}^{T}t^2
+= 2D\frac{T(T+1)(2T+1)}{6}
+= O(T^3)
+$$
+
+With KV cache:
+
+$$
+\text{projection MACs}
+= 4D^2T
+= O(T)
+$$
+
+$$
+\text{attention MACs}
+= 2D\sum_{t=1}^{T}t
+= 2D\frac{T(T+1)}{2}
+= O(T^2)
+$$
+
+Thus KV caching changes the cumulative decoding work in this lab from:
+
+```text
+Projections: O(T²) → O(T)
+Attention:   O(T³) → O(T²)
+```
+
+It does not make attention constant-time, because each new query must still compare with all previously cached keys.
+
+#### Active KV-cache memory at step `t`
+
+For one layer and batch size 1:
+
+$$
+\boxed{\text{KV bytes} = 2 \times t \times D \times \text{dtype bytes}}
+$$
+
+The factor of 2 is for the K cache plus the V cache. Therefore, active KV-cache memory grows linearly with sequence length:
+
+$$
+O(T)
+$$
+
