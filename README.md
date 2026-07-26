@@ -1,3 +1,25 @@
+# General Notes on Transformer Models  
+3 categories of Transformer-based models:  
+1. **Encoder-decoder**  
+Purpose: text-to-text  
+Models: T5, mT5, ByT5 etc  
+2. **Encoder only**  
+Purpose: For projection of embedding for class prediction (e.g. sentiment extraction etc)  
+Models: BERT, etc  
+3. **Decoder only**  
+Purpose: text-to-text  
+Models: GPT series, LLaMa (from meta), Gemma, DeepSeek, Mistral, Qwen, ...    
+Components: Masked Multihead attention, Add & Norm, Feed Forward, Add & Norm  
+**90% of modern day LLMs are decoder-only**  
+
+# Language Model  
+A statistical OR machine learning model that assigns probabilities to sequences of tokens.  
+
+## Large Language Model  
+* Model size: billions of parameters (or more)  
+* Training data: 100s of billions of tokens (or more)  
+* Compute: a lot of GPUs  
+
 # Repository on learnings and experiments on AI Systems Performance Engineering
 ## Lab#1: RoPE Positional Encoding   
 ## Lab#2: Attention   
