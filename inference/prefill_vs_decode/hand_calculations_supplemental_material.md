@@ -375,3 +375,121 @@ $$
 * H: attention heads  
 * First T: which token is issuing the query  
 * Second T: which token’s key that query is compared against  
+
+For one batch item and one head, the result is a T×T matrix:  
+
+| Query \ Key | Token 1 | Token 2 | Token 3 | Token 4 |  
+| ------------| -------:| -------:| -------:| -------:|  
+| **Token 1** |  score  |  score  |  score  |  score  |  
+| **Token 2** |  score  |  score  |  score  |  score  |  
+| **Token 3** |  score  |  score  |  score  |  score  |  
+| **Token 4** |  score  |  score  |  score  |  score  |  
+
+Every cell is a dot product:
+$$
+\[
+S_{b,h,i,j} = Q_{b,h,i,:} \cdot K_{b,h,j,:}
+\]
+$$
+For batch item b and head h, how strongly does query token i match key token j  
+For example:  
+`Q:[2,8,128,64]`  
+`K^⊤:[2,8,64,128]`  
+
+Therefore:  
+`QK⊤:[2,8,128,128]`  
+The output has one 128×128 attention-score matrix for each of the 8 heads in each of the 2 batch items.  
+
+# Why process old prompt positions if only the last one predicts the next token?  
+For the first generated token, the model normally uses the final prompt position.  
+However, the earlier prompt positions must still be processed because:  
+1. Their keys and values provide context to later tokens  
+2. Their keys and values must be stored in the KV cache  
+3. The final prompt token must attend to representations derived from all prior prompt tokens  
+
+At the end of prefill, each layer has cache tensors approximately shaped as:  
+`K_cache:[B,H,T,Dh]`  
+`V_cache:[B,H,T,Dh]`
+
+For your toy configuration:  
+`K_cache: [1, 2, 6, 8]`  
+`V_cache: [1, 2, 6, 8]`  
+These contain the keys and values for all six prompt tokens.  
+
+# What changes during decode?  
+During prefill:  
+`X:[B,T,D]`  
+For example:  
+`[1, 6, 16]`  
+
+During the next decode step, only one new token is processed:  
+`Xnew:[B,1,D]`  
+For example:  
+`[1, 1, 16]`  
+The new token produces:  
+`Q_new: [1, 2, 1, 8]`  
+`K_new: [1, 2, 1, 8]`  
+`V_new: [1, 2, 1, 8]`  
+
+The new key and value are appended to the cache:  
+**Before decode:**  
+`K_cache = [1, 2, 6, 8]`  
+
+**After adding one token:**  
+`K_cache = [1, 2, 7, 8]`  
+
+The new query attends to all seven cached keys:  
+`Q_new * K^T_cache`  
+
+with score shape:  
+`[1,2,1,7]`  
+
+That is the key shape difference:  
+**Prefill attention:**  
+`[B, H, T, T]`  
+
+**Decode attention:**  
+`[B, H, 1, current_cache_length]`  
+
+# Compact mental model  
+Think of X as a collection of token vectors:  
+
+Batch  
+└── Prompt  
+    ├── Token 1 → D numbers  
+    ├── Token 2 → D numbers  
+    ├── Token 3 → D numbers  
+    └── ...  
+
+Therefore:  
+`X:[B,T,D]`  
+
+means:  
+````
+B prompts  
+× T tokens per prompt  
+× D numbers representing each token  
+````
+For your lab configuration:  
+````
+B = 1  
+T = prompt length  
+D = 16  
+H = 2  
+Dh = 8  
+````
+So for a six-token prompt:  
+````
+X         [1, 6, 16]  
+Q/K/V     [1, 6, 16]  
+Q/K/V     [1, 2, 6, 8] after splitting into heads  
+scores    [1, 2, 6, 6]  
+K cache   [1, 2, 6, 8]  
+V cache   [1, 2, 6, 8]  
+````
+
+The most important interpretation is:  
+`X[b,t,:] is the complete D-dimensional representation of token position t in prompt b.`  
+
+
+
