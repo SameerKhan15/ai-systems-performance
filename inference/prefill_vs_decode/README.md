@@ -277,3 +277,627 @@ Complete this statement in your own words:
 ```text
 Answer:
 ```
+
+# Lab Instructions  
+`chmod +x setup_prefill_latency_lab.sh`  
+`./setup_prefill_latency_lab.sh`  
+
+The script uses `/workspace/prefill-latency-lab` by default. To choose another location:  
+`LAB_DIR=/workspace/my-prefill-lab ./setup_prefill_latency_lab.sh`  
+
+It will:  
+* Reuse Nsight Systems when already installed  
+* Install Nsight Systems with version fallbacks when missing  
+* Detect the Ubuntu version before configuring NVIDIA’s repository  
+* Install Python, nano, and required packages  
+* Create a virtual environment that can reuse RunPod’s preinstalled CUDA-compatible PyTorch  
+* Install PyTorch only when it is genuinely missing  
+* Verify CUDA, GPU model, GPU count, VRAM, nvidia-smi, and nsys  
+* Stop with a clear error when PyTorch cannot access the GPU.  
+* Safely support repeated execution  
+
+After setup, place these files in `/../prefill-latency-lab`:  
+`prefill_latency_lab.py`  
+`test_prefill_latency_lab.py`  
+
+Then execute:  
+`cd /workspace/prefill-latency-lab`  
+`source .venv/bin/activate`  
+
+`python -m unittest -v`  
+`python prefill_latency_lab.py --help`  
+
+````
+python prefill_latency_lab.py \
+    --device cuda \
+    --dtype float16 \
+    --embed-dim 512 \
+    --num-heads 8 \
+    --attention-backend manual \
+    --prompt-lengths 128,256,512,1024,2048,4096,8192 \
+    --runs 30
+````
+````
+nsys profile \
+    --trace=cuda,nvtx,osrt \
+    --sample=none \
+    --force-overwrite=true \
+    --output=prefill_latency_2048 \
+    python prefill_latency_lab.py \
+        --device cuda \
+        --dtype float16 \
+        --embed-dim 512 \
+        --num-heads 8 \
+        --attention-backend manual \
+        --prompt-lengths 2048 \
+        --runs 3
+````
+# Scaling Factor Calculation  
+Start with the assumption that latency follows a power law over some range:  
+$$
+L(T) = cT^{\alpha}
+$$
+This is the standard *power-law scaling* form, where:  
+* T is the prompt length  
+* L(T) is the latency  
+* c is a constant  
+* α is the scaling exponent  
+Now double the prompt length from T to 2T:  
+$$
+L(2T) = c(2T)^{\alpha}
+$$
+Expand:  
+$$
+L(2T) = c2^{\alpha}T^{\alpha}  
+$$
+But from the original equation:  
+$$
+L(T) = cT^{\alpha}
+$$
+Therefore:  
+$$
+L(2T) = 2^{\alpha}L(T)
+$$
+Divide both sides by L(T):  
+$$
+\frac{L(2T)}{L(T)} = 2^{\alpha}
+$$
+Now take the base-2 logarithm:  
+$$
+\log_{2}\left(\frac{L(2T)}{L(T)}\right) = \log_{2}\left(2^{\alpha}\right)
+$$
+Because:
+$$
+\log_{2}\left(2^{\alpha}\right) = \alpha
+$$
+we obtain:
+$$
+\boxed{
+\alpha
+=
+\log_{2}\left(
+\frac{L(2T)}{L(T)}
+\right)
+}
+$$
+
+Why this works intuitively  
+The ratio  
+`L(2T) / L(T)` 
+asks:  
+When i double the prompt length, by what factor does latency increase?  
+The logarithm then converts that growth factor into the exponent.  
+
+## Linear Scaling  
+If doubling prompt length doubles latency:  
+$$
+\frac{L(2T)}{L(T)} = 2
+$$
+then:  
+$$
+\alpha = \log_{2}(2) = 1
+$$
+So:
+$$
+L(T) \propto T
+$$
+
+## Quadratic scaling  
+If doubling prompt length quadruples latency:
+$$
+\frac{L(2T)}{L(T)} = 4
+$$
+then: 
+\alpha = \log_{2}(4) = 2
+So: 
+$$
+L(T) \propto T^2
+$$
+
+## Sublinear scaling  
+If doubling prompt length increases latency by only 1.5×:  
+$$
+\alpha = \log_{2}(1.5) \approx 0.585
+$$
+That means latency is growing more slowly than linearly over that interval.  
+
+E.g. Suppose approximately:  
+`L(4096)=2.9 ms`  
+and:  
+`L(8192)=9.6 ms`  
+
+Since `8192=2×4096`:  
+$$
+\alpha = \log_{2}\left(\frac{9.6}{2.9}\right)
+$$
+The latency ratio is approximately:  
+`9.6 / 2.9 = 3.31`  
+Therefore:  
+$$
+\alpha \approx \log_{2}(3.31) \approx 1.73
+$$
+So between 4096 and 8192 tokens, latency behaves approximately like:  
+$$
+L(T) \propto T^{1.73}
+$$
+This does not mean the complete system always follows T^1.73.  
+It means that over this particular doubling interval, the observed latency growth resembles a power law with exponent approximately 1.73.  
+
+# Projection & Attention Latency Equations  
+Let  
+* T = prompt length  
+* D = embedding dimension  
+* H = number of attention heads  
+* D_h = D/H = dimension of each head  
+* Batch size B=1  
+The lab counts *multiply-accumulate operations (MACs)*. For a matrix multiplication  
+`[m,k] × [k,n] → [m,n]`,  
+the work is approximately  
+`mkn MACs`  
+
+The test file encodes the same accounting: four projection matrices contribute `4TD^2`, while the two attention matrix multiplications  
+contribute `2T^2 * D`.  
+
+## Deriving projection work: 4TD^2  
+The input token representations have shape  
+`X:[T,D]`  
+Self-attention applies four learned linear projections:  
+1. Query projection  
+2. Key projection  
+3. Value projection  
+4. Output projection  
+
+### Query projection  
+`Q = XWq`  
+where:  
+`X:[T,D]`  
+`Wq:[D,D]`  
+
+`Q = [T,D] * [D,D] = [T,D]`  
+Its cost is: `T * D * D = TD^2`  
+The key and value projections have exactly the same cost:  
+`K = XWk => TD^2`  
+`V = XWv => TD^2`  
+So QKV projection work is `3TD^2`  
+
+After the attention heads are concatenated, the output is projected again:  
+`O=Concat(heads)Wo` 
+where:  
+`Concat(heads):[T,D], Wo:[D,D]`  
+This costs another:  
+`TD^2`  
+Therefore total projection work is:  
+`3TD^2 + TD^2 = 4TD^2`  
+
+The factor 4 comes from the four D×D linear layers:  
+Wq, Wk, Wv, Wo  
+
+## Deriving projection work: 2T^2 * D  
+After splitting into heads:  
+`Q,K,V:[H,T,Dh]`  
+There are two major matrix multiplications inside attention.  
+
+**Step A: Compute attention scores**  
+For each head:
+$$
+Q_h K_h^{\top}.
+$$
+The shapes are:  
+$$
+Q_h: [T,D_h]  
+$$
+$$
+K_h^{\top}: [D_h,T]
+$$
+Thus:  
+$$
+[T,D_h] x [D_h,T] -> [T,T]
+$$
+The work for one head is:  
+$$
+T⋅D_h⋅T = T^2D_h
+$$
+There are H heads:  
+$$
+H⋅T^2D_h
+$$
+Because:  
+$$
+HD_h = D
+$$
+we get:  
+$$
+HT^2D_h = T^2D
+$$
+So attention-score computation costs:  
+$$
+T^2D
+$$
+
+**Step B: Multiply attention probabilities by values**  
+After softmax, each head has an attention matrix:  
+$$
+A_h:[T,T]
+$$
+It multiplies the value matrix:  
+$$
+V_h:[T,D_h]
+$$
+Therefore:  
+$$
+[T,T]×[T,D_h] → [T,D_h]
+$$
+The work for one head is:  
+$$
+T⋅T⋅D_h=T^2D_h
+$$
+Across all H heads:  
+$$
+HT^2D_h=T^2D
+$$
+So the attention-value multiplication costs another:  
+$$
+T^2D
+$$
+Adding the two attention matrix multiplications:  
+$$
+T^2D + T^2D
+$$
+$$
+2T^2D
+$$
+The factor 2 comes from:  
+$$
+QK^T  
+$$
+$$
+softmax(QK^⊤)V
+$$
+
+# Total attention-block MACs  
+Combining projections and attention:  
+$$
+Total MACs = 4TD^2 + 2T^2D
+$$
+The two terms scale differently:  
+$$
+4TD^2∝T
+$$
+because D is fixed, while:  
+$$
+2T^2D ∝ T^2
+$$
+Therefore:  
+* Projection work grows **linearly** with prompt length  
+* Attention work grows **quadratically** with prompt length  
+
+# Why the crossover occurs at T=2D  
+Set the two components equal:  
+$$
+4TD^2=2T^2D
+$$
+Divide both sides by 2TD:  
+`2D=T`  
+Therefore:  
+`T = 2D`  
+For our experiment:  
+D=512, 
+so:  
+`T=2(512)=1024`  
+That means around 1024 tokens:  
+`projection MACs≈attention MACs`  
+Below 1024 tokens, projections represent more of the theoretical work. Above 1024 tokens, quadratic attention increasingly dominates.  
+
+# Analysis  
+![](outputs/prefill_latency_vs_prompt_length.png "This is a sample image.")
+![](outputs/prefill_latency_loglog_fit.png "This is a sample image.")  
+## 1. The curve has two distinct regimes  
+### Small prompts: roughly 128–1024 tokens  
+Latency is almost flat'ish, actually decreasing from `512 -> 1024`. Overall for this period, it ranges from `0.4 - 0.7 ms`  
+That does NOT mean the computational work is constant. As prompt length increases, the model is doing more operations, but the A100 is not yet fully utilized.  
+Latency is dominated by factors such as:  
+* CUDA kernel-launch overhead  
+* Synchronization overhead  
+* Memory allocation or framework overhead  
+* Insufficient parallel work to saturate the GPU  
+* Fixed projection costs
+At these sizes, adding tokens gives the GPU more useful work without increasing elapsed time proportionally. This is why GPU throughput can improve while latency remains nearly unchanged.  
+
+## 2. The bend near 1024–2048 is theoretically meaningful  
+For this configuration:  
+`D=512`  
+Projection work scales approximately as:  
+$$
+4TD^2
+$$
+Attention work scales approximately as:  
+$$
+2T^2D
+$$
+They become equal when:  
+$$
+4TD^2=2T^2D
+$$
+`T=2D=1024`  
+So around 1024 tokens, the quadratic attention component becomes comparable to the linear projection component.  
+
+That matches the shape of your graph:  
+* Before roughly 1024: relatively flat  
+* After roughly 1024: latency begins bending upward  
+* At 4096 and 8192: attention increasingly dominates  
+This is probably the most important conceptual observation from the chart.  
+
+## 3. The larger lengths show increasingly superlinear growth  
+Using approximate values from the plot:  
+
+| Prompt-length change | Median latency change | Approximate local exponent |  
+| -------------------- | --------------------: | -------------------------: |  
+| 2048 → 4096          |     ~1.2 ms → ~2.9 ms |     ( \alpha \approx 1.3 ) |  
+| 4096 → 8192          |     ~2.9 ms → ~9.6 ms |     ( \alpha \approx 1.7 ) |  
+
+The local exponent comes from:  
+$$
+α=log_2(L(2T)/L(T))
+$$
+For purely quadratic behavior, doubling T would quadruple latency:  
+$$
+l(2T)/L(T) = 4 => α = 2
+$$
+Our curve has not reached a perfect `T^2` latency regime, but is moving toward it:  
+`α: 1.3 -> 1.7`  
+That is exactly what we might expect as fixed overhead and linear projection work become less important relative to quadratic attention.  
+
+## 4. Why 8192 does not simply take four times as long as 4096  
+Doubling prompt length quadruples the attention matrix size, but total elapsed time does not have to quadruple exactly.  
+The GPU may become more efficient at larger workloads because:  
+
+* larger matrix multiplications use the GPU more effectively  
+* Tensor Cores become better utilized  
+* launch overhead becomes a smaller fraction of total time  
+* memory operations may be more efficiently amortized  
+* multiple components of the block have different scaling behavior  
+
+Therefore:  
+`operation growth != exact latency growth`   
+The theoretical work approaches quadratic growth, while actual latency reflects both work and hardware efficiency.
+
+## 5. Median and p95 are very close  
+At 2048, 4096, and 8192, the median and p95 curves are close together.  
+That is encouraging because it indicates:
+* low run-to-run variability  
+* stable GPU execution  
+* few major latency outliers  
+* sufficient warmup  
+* a relatively controlled environment  
+
+The separation appears slightly larger around 512–1024. That region may be more sensitive to fixed overhead, GPU clock changes, or kernel-selection boundaries.  
+
+## Main conclusion  
+Prefill latency remains nearly flat for short prompts because fixed overhead and GPU underutilization dominate.  
+Around T=1024, where attention work becomes comparable to projection work for D=512, latency begins increasing more rapidly.  
+At larger prompt lengths, the observed scaling becomes increasingly superlinear and moves toward the quadratic behavior predicted by full causal attention.  
+
+![](outputs/prefill_throughput_vs_prompt_length.png "This is a sample image.")  
+This chart is particularly valuable because it shows the other side of the latency curve.  
+First the GPU becomes more efficient as the problem gets larger, then the quadratic work overwhelms that efficiency.  
+
+## 1. What exactly is this throughput?  
+For batch size 1, our lab is effectively computing:  
+$$
+Prompt throughput(T) = T / L(T)
+$$
+where L(T) is prefill latency in seconds.  
+For example, around `T=8192`, your latency chart showed roughly:  
+$$
+L(8192)≈9.5ms=0.0095s
+$$
+Therefore:  
+$$
+Throughput=8192/0.0095 = 862,000 tokens/s
+$$
+which is almost exactly what this graph shows.  
+So this graph isn't independent of the latency graph. It is another way of looking at the same measurements.  
+
+## 2. First half: throughput keeps increasing  
+Approximately:  
+
+|  (T) |  Throughput |
+| ---: | ----------: |
+|  128 | 0.30M tok/s |
+|  256 | 0.62M tok/s |
+|  512 | 1.24M tok/s |
+| 1024 |  2.6M tok/s |
+Every time we approximately double T:  
+`128→256→512→1024`  
+throughput also roughly doubles.  
+Why?  
+Because from our previous latency chart:  
+$$
+L(T)≈constant  
+$$
+over much of this region.  
+
+If latency is approximately 0.4 ms regardless of whether you process 128 or 1024 tokens, then:  
+$$
+throughput = T / roughly constant
+$$
+so throughput grows approximately linearly with T. This is classic GPU utilization/amortization behavior.  
+At 128 tokens, we're giving an A100 a relatively small amount of work. The GPU has enormous compute capacity that we're not exploiting.  
+
+At 256: More useful work, almost the same elapsed time   
+At 512: More useful work again, almost the same elapsed time    
+At 1024: We're doing substantially more work, but the GPU is utilizing its parallel resources much more efficiently  
+
+That's why:  
+**more work can actually produce higher throughput**  
+even though it cannot indefinitely produce lower latency.  
+
+## 3. Something changes around 1024  
+Our throughput reaches its maximum:  
+`~2.6 million prompt tokens/sec`  
+around: `T = 1024`  
+and then starts falling:  
+`1024→2048:2.6M→1.83M`  
+`2048→4096:1.83M→1.43M`  
+`4096→8192:1.43M→0.86M`  
+Why?  
+Because increasing T is now causing latency to grow faster than prompt length.  
+And we can prove that mathematically.  
+
+## 4. Connect this directly to the scaling exponent  
+Earlier we assumed:  
+$$
+L(T) ∝ T^α 
+$$
+Throughput is:  
+$$
+R(T) = T / L(T)
+$$
+Substitute:  
+$$
+R(T) ∝ T / T^∝
+$$
+Using exponent rules:  
+$$
+R(T) ∝ T^(1-∝)
+$$
+This equation gives us an extremely useful systems insight.  
+
+**If latency is sublinear**  
+Suppose:  
+$$
+α < 1
+$$
+Then:  
+$$
+1 − α > 0
+$$
+so throughput increases with prompt length.  
+That's approximately our 128–1024 region.  
+
+**If latency is linear**  
+If:  
+`α = 1`  
+then:  
+$$
+R(T) ∝ T^0
+$$
+and:  
+$$
+T^0 = 1
+$$
+So throughput becomes roughly constant.  
+
+**If latency is superlinear**
+If:
+$$
+α > 1
+$$
+then:  
+$$
+1−α < 0
+$$
+Therefore throughput declines as prompt length increases.
+That's what we see after roughly 1024.  
+
+## 5. Now connect it to the attention math we derived  
+We previously derived total MACs:  
+$$
+MACs = 4TD^2 + 2T^2D
+$$
+with D=512.  
+And we found the crossover:  
+$$
+T = 2D = 1024
+$$
+At roughly T=1024:  
+$$
+projection MACs ≈ attention MACs
+$$
+Beyond that:  
+$$
+2T^2D
+$$
+becomes increasingly important.  
+So there is a very nice correspondence in our experiment.  
+
+**Before ~1024**  
+GPU efficiency gains dominate:  
+$$
+more tokens→better utilization→higher throughput
+$$
+Around ~1024  
+You hit approximately the best balance:  
+$$
+high GPU utilization + quadratic cost not yet overwhelming
+$$
+**Beyond ~1024**  
+Quadratic attention increasingly dominates:  
+$$
+T ↑⇒ T^2 attention work ↑↑
+$$
+Latency therefore grows superlinearly:  
+$$
+L(T) ↑↑
+$$
+and eventually:  
+$$
+T / L(T) ↓
+$$
+so throughput falls.  
+
+## 6. Think about 4096 → 8192  
+This is probably the clearest example.  
+Prompt length doubles:  
+`4096 → 8192`  
+That's:  
+`2×tokens`  
+But latency goes approximately:  
+`2.9 ms → 9.6 ms`  
+or:  
+`∼3.3×`  
+Therefore throughput must fall:  
+$$
+(2 x tokens / 3.3 x time) = 0.61
+$$
+So we'd expect throughput at 8192 to be roughly:  
+`61%`  
+of throughput at 4096.  
+From the plot:  
+$$
+0.86M / 1.43M = 60%
+$$
+Beautiful agreement.  
+
+## The deeper systems lesson  
+This graph demonstrates something fundamental about accelerators:  
+**Maximum throughput does not necessarily occur at minimum workload size**  
+There is usually a sweet spot.  
+Small workloads suffer from:  
+`underutilization + fixed overhead`  
+Large workloads suffer from:  
+`growing algorithmic work`  
+Somewhere in between:  
+`hardware utilization is high while algorithmic cost is still manageable`  
+and throughput peaks.  
+
