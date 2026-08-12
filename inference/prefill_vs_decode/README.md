@@ -644,7 +644,9 @@ Approximately:
 |  128 | 0.30M tok/s |
 |  256 | 0.62M tok/s |
 |  512 | 1.24M tok/s |
-| 1024 |  2.6M tok/s |
+| 1024 |  2.6M tok/s |  
+
+
 Every time we approximately double T:  
 `128→256→512→1024`  
 throughput also roughly doubles.  
