@@ -334,9 +334,8 @@ nsys profile \
 ````
 # Scaling Factor Calculation  
 Start with the assumption that latency follows a power law over some range:  
-$$
-L(T) = cT^{\alpha}
-$$
+$L(T) = cT^{\alpha}$  
+
 This is the standard *power-law scaling* form, where:  
 * T is the prompt length  
 * L(T) is the latency  
