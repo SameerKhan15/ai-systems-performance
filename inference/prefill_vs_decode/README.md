@@ -362,7 +362,7 @@ $\log_{2}\left(\frac{L(2T)}{L(T)}\right) = \log_{2}\left(2^{\alpha}\right)$
 Because:  
 $\log_{2}\left(2^{\alpha}\right) = \alpha$  
 
-we obtain:
+we obtain:  
 $\boxed{\alpha =
 \log_{2}\left(
 \frac{L(2T)}{L(T)}
@@ -379,56 +379,47 @@ The logarithm then converts that growth factor into the exponent.
 
 ## Linear Scaling  
 If doubling prompt length doubles latency:  
-$$
-\frac{L(2T)}{L(T)} = 2
-$$
+$\frac{L(2T)}{L(T)} = 2$  
+
 then:  
-$$
-\alpha = \log_{2}(2) = 1
-$$
+$\alpha = \log_{2}(2) = 1$  
+
 So:
-$$
-L(T) \propto T
-$$
+$L(T) \propto T$  
 
 ## Quadratic scaling  
 If doubling prompt length quadruples latency:
-$$
-\frac{L(2T)}{L(T)} = 4
-$$
-then: 
-\alpha = \log_{2}(4) = 2
-So: 
-$$
-L(T) \propto T^2
-$$
+$\frac{L(2T)}{L(T)} = 4$  
+
+then:  
+$\alpha = \log_{2}(4) = 2$  
+
+So:  
+$L(T) \propto T^2$  
 
 ## Sublinear scaling  
 If doubling prompt length increases latency by only 1.5×:  
-$$
-\alpha = \log_{2}(1.5) \approx 0.585
-$$
+$\alpha = \log_{2}(1.5) \approx 0.585$  
+
 That means latency is growing more slowly than linearly over that interval.  
 
 E.g. Suppose approximately:  
 `L(4096)=2.9 ms`  
+
 and:  
 `L(8192)=9.6 ms`  
 
 Since `8192=2×4096`:  
-$$
-\alpha = \log_{2}\left(\frac{9.6}{2.9}\right)
-$$
+$\alpha = \log_{2}\left(\frac{9.6}{2.9}\right)$  
+
 The latency ratio is approximately:  
 `9.6 / 2.9 = 3.31`  
+
 Therefore:  
-$$
-\alpha \approx \log_{2}(3.31) \approx 1.73
-$$
+$\alpha \approx \log_{2}(3.31) \approx 1.73$  
+
 So between 4096 and 8192 tokens, latency behaves approximately like:  
-$$
-L(T) \propto T^{1.73}
-$$
+$L(T) \propto T^{1.73}$  
 This does not mean the complete system always follows T^1.73.  
 It means that over this particular doubling interval, the observed latency growth resembles a power law with exponent approximately 1.73.  
 
@@ -488,103 +479,57 @@ There are two major matrix multiplications inside attention.
 
 **Step A: Compute attention scores**  
 For each head:
-$$
-Q_h K_h^{\top}.
-$$
+$Q_h K_h^{\top}.$  
 The shapes are:  
-$$
-Q_h: [T,D_h]  
-$$
-$$
-K_h^{\top}: [D_h,T]
-$$
+$Q_h: [T,D_h]$  
+$K_h^{\top}: [D_h,T]$  
 Thus:  
-$$
-[T,D_h] x [D_h,T] -> [T,T]
-$$
+$[T,D_h] x [D_h,T] -> [T,T]$  
 The work for one head is:  
-$$
-T⋅D_h⋅T = T^2D_h
-$$
+$T⋅D_h⋅T = T^2D_h$  
 There are H heads:  
-$$
-H⋅T^2D_h
-$$
+$H⋅T^2D_h$  
 Because:  
-$$
-HD_h = D
-$$
+$HD_h = D$  
 we get:  
-$$
-HT^2D_h = T^2D
-$$
+$HT^2D_h = T^2D$  
 So attention-score computation costs:  
-$$
-T^2D
-$$
+$T^2D$  
 
 **Step B: Multiply attention probabilities by values**  
 After softmax, each head has an attention matrix:  
-$$
-A_h:[T,T]
-$$
+$A_h:[T,T]$  
 It multiplies the value matrix:  
-$$
-V_h:[T,D_h]
-$$
+$V_h:[T,D_h]$  
 Therefore:  
-$$
-[T,T]×[T,D_h] → [T,D_h]
-$$
+$[T,T]×[T,D_h] → [T,D_h]$  
 The work for one head is:  
-$$
-T⋅T⋅D_h=T^2D_h
-$$
+$T⋅T⋅D_h=T^2D_h$  
 Across all H heads:  
-$$
-HT^2D_h=T^2D
-$$
+$HT^2D_h=T^2D$  
 So the attention-value multiplication costs another:  
-$$
-T^2D
-$$
+$T^2D$  
 Adding the two attention matrix multiplications:  
-$$
-T^2D + T^2D
-$$
-$$
-2T^2D
-$$
+$T^2D + T^2D$  
+$2T^2D$  
 The factor 2 comes from:  
-$$
-QK^T  
-$$
-$$
-softmax(QK^⊤)V
-$$
+$QK^T$  
+$softmax(QK^⊤)V$  
 
 # Total attention-block MACs  
 Combining projections and attention:  
-$$
-Total MACs = 4TD^2 + 2T^2D
-$$
+$Total MACs = 4TD^2 + 2T^2D$  
 The two terms scale differently:  
-$$
-4TD^2∝T
-$$
+$4TD^2∝T$  
 because D is fixed, while:  
-$$
-2T^2D ∝ T^2
-$$
+$2T^2D ∝ T^2$  
 Therefore:  
 * Projection work grows **linearly** with prompt length  
 * Attention work grows **quadratically** with prompt length  
 
 # Why the crossover occurs at T=2D  
 Set the two components equal:  
-$$
-4TD^2=2T^2D
-$$
+$4TD^2=2T^2D$  
 Divide both sides by 2TD:  
 `2D=T`  
 Therefore:  
@@ -616,17 +561,11 @@ At these sizes, adding tokens gives the GPU more useful work without increasing 
 For this configuration:  
 `D=512`  
 Projection work scales approximately as:  
-$$
-4TD^2
-$$
+$4TD^2$  
 Attention work scales approximately as:  
-$$
-2T^2D
-$$
+$2T^2D$  
 They become equal when:  
-$$
-4TD^2=2T^2D
-$$
+$4TD^2=2T^2D$  
 `T=2D=1024`  
 So around 1024 tokens, the quadratic attention component becomes comparable to the linear projection component.  
 
@@ -645,13 +584,9 @@ Using approximate values from the plot:
 | 4096 → 8192          |     ~2.9 ms → ~9.6 ms |     ( \alpha \approx 1.7 ) |  
 
 The local exponent comes from:  
-$$
-α=log_2(L(2T)/L(T))
-$$
+$α=log_2(L(2T)/L(T))$  
 For purely quadratic behavior, doubling T would quadruple latency:  
-$$
-l(2T)/L(T) = 4 => α = 2
-$$
+$l(2T)/L(T) = 4 => α = 2$  
 Our curve has not reached a perfect `T^2` latency regime, but is moving toward it:  
 `α: 1.3 -> 1.7`  
 That is exactly what we might expect as fixed overhead and linear projection work become less important relative to quadratic attention.  
@@ -692,18 +627,12 @@ First the GPU becomes more efficient as the problem gets larger, then the quadra
 
 ## 1. What exactly is this throughput?  
 For batch size 1, our lab is effectively computing:  
-$$
-Prompt throughput(T) = T / L(T)
-$$
+$Prompt throughput(T) = T / L(T)$  
 where L(T) is prefill latency in seconds.  
 For example, around `T=8192`, your latency chart showed roughly:  
-$$
-L(8192)≈9.5ms=0.0095s
-$$
+$L(8192)≈9.5ms=0.0095s$  
 Therefore:  
-$$
-Throughput=8192/0.0095 = 862,000 tokens/s
-$$
+$Throughput=8192/0.0095 = 862,000 tokens/s$  
 which is almost exactly what this graph shows.  
 So this graph isn't independent of the latency graph. It is another way of looking at the same measurements.  
 
@@ -721,15 +650,11 @@ Every time we approximately double T:
 throughput also roughly doubles.  
 Why?  
 Because from our previous latency chart:  
-$$
-L(T)≈constant  
-$$
+$L(T)≈constant$  
 over much of this region.  
 
 If latency is approximately 0.4 ms regardless of whether you process 128 or 1024 tokens, then:  
-$$
-throughput = T / roughly constant
-$$
+$throughput = T / roughly constant$  
 so throughput grows approximately linearly with T. This is classic GPU utilization/amortization behavior.  
 At 128 tokens, we're giving an A100 a relatively small amount of work. The GPU has enormous compute capacity that we're not exploiting.  
 
@@ -755,32 +680,20 @@ And we can prove that mathematically.
 
 ## 4. Connect this directly to the scaling exponent  
 Earlier we assumed:  
-$$
-L(T) ∝ T^α 
-$$
+$L(T) ∝ T^α$  
 Throughput is:  
-$$
-R(T) = T / L(T)
-$$
+$R(T) = T / L(T)$  
 Substitute:  
-$$
-R(T) ∝ T / T^∝
-$$
+$R(T) ∝ T / T^∝$  
 Using exponent rules:  
-$$
-R(T) ∝ T^(1-∝)
-$$
+$R(T) ∝ T^(1-∝)$  
 This equation gives us an extremely useful systems insight.  
 
 **If latency is sublinear**  
 Suppose:  
-$$
-α < 1
-$$
+$α < 1$  
 Then:  
-$$
-1 − α > 0
-$$
+$1 − α > 0$  
 so throughput increases with prompt length.  
 That's approximately our 128–1024 region.  
 
@@ -788,71 +701,45 @@ That's approximately our 128–1024 region.
 If:  
 `α = 1`  
 then:  
-$$
-R(T) ∝ T^0
-$$
+$R(T) ∝ T^0$  
 and:  
-$$
-T^0 = 1
-$$
+$T^0 = 1$  
 So throughput becomes roughly constant.  
 
 **If latency is superlinear**
 If:
-$$
-α > 1
-$$
+$α > 1$  
 then:  
-$$
-1−α < 0
-$$
+$1−α < 0$  
 Therefore throughput declines as prompt length increases.
 That's what we see after roughly 1024.  
 
 ## 5. Now connect it to the attention math we derived  
 We previously derived total MACs:  
-$$
-MACs = 4TD^2 + 2T^2D
-$$
+$MACs = 4TD^2 + 2T^2D$  
 with D=512.  
 And we found the crossover:  
-$$
-T = 2D = 1024
-$$
+$T = 2D = 1024$  
 At roughly T=1024:  
-$$
-projection MACs ≈ attention MACs
-$$
+$projection MACs ≈ attention MACs$  
 Beyond that:  
-$$
-2T^2D
-$$
+$2T^2D$  
 becomes increasingly important.  
 So there is a very nice correspondence in our experiment.  
 
 **Before ~1024**  
 GPU efficiency gains dominate:  
-$$
-more tokens→better utilization→higher throughput
-$$
+$more tokens→better utilization→higher throughput$  
 Around ~1024  
 You hit approximately the best balance:  
-$$
-high GPU utilization + quadratic cost not yet overwhelming
-$$
+$high GPU utilization + quadratic cost not yet overwhelming$  
 **Beyond ~1024**  
 Quadratic attention increasingly dominates:  
-$$
-T ↑⇒ T^2 attention work ↑↑
-$$
+$T ↑⇒ T^2 attention work ↑↑$  
 Latency therefore grows superlinearly:  
-$$
-L(T) ↑↑
-$$
+$L(T) ↑↑$  
 and eventually:  
-$$
-T / L(T) ↓
-$$
+$T / L(T) ↓$  
 so throughput falls.  
 
 ## 6. Think about 4096 → 8192  
@@ -866,16 +753,12 @@ But latency goes approximately:
 or:  
 `∼3.3×`  
 Therefore throughput must fall:  
-$$
-(2 x tokens / 3.3 x time) = 0.61
-$$
+$(2 x tokens / 3.3 x time) = 0.61$  
 So we'd expect throughput at 8192 to be roughly:  
 `61%`  
 of throughput at 4096.  
 From the plot:  
-$$
-0.86M / 1.43M = 60%
-$$
+$0.86M / 1.43M = 60%$  
 Beautiful agreement.  
 
 ## The deeper systems lesson  
