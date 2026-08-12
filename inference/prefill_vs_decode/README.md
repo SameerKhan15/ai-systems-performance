@@ -342,29 +342,23 @@ This is the standard *power-law scaling* form, where:
 * c is a constant  
 * α is the scaling exponent  
 Now double the prompt length from T to 2T:  
-$$
-L(2T) = c(2T)^{\alpha}
-$$
+$L(2T) = c(2T)^{\alpha}$  
+
 Expand:  
-$$
-L(2T) = c2^{\alpha}T^{\alpha}  
-$$
+$L(2T) = c2^{\alpha}T^{\alpha}$  
+
 But from the original equation:  
-$$
-L(T) = cT^{\alpha}
-$$
+$L(T) = cT^{\alpha}$  
+
 Therefore:  
-$$
-L(2T) = 2^{\alpha}L(T)
-$$
+$L(2T) = 2^{\alpha}L(T)$  
+
 Divide both sides by L(T):  
-$$
-\frac{L(2T)}{L(T)} = 2^{\alpha}
-$$
+$\frac{L(2T)}{L(T)} = 2^{\alpha}$  
+
 Now take the base-2 logarithm:  
-$$
-\log_{2}\left(\frac{L(2T)}{L(T)}\right) = \log_{2}\left(2^{\alpha}\right)
-$$
+$\log_{2}\left(\frac{L(2T)}{L(T)}\right) = \log_{2}\left(2^{\alpha}\right)$  
+
 Because:
 $$
 \log_{2}\left(2^{\alpha}\right) = \alpha
