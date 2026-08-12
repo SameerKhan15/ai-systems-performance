@@ -569,8 +569,8 @@ def parse_prompt_lengths(raw_value: str) -> List[int]:
             "prompt lengths must be comma-separated integers"
         ) from exc
 
-    if len(values) < 2:
-        raise argparse.ArgumentTypeError("provide at least two prompt lengths")
+    if len(values) < 1:
+        raise argparse.ArgumentTypeError("provide at least one prompt lengths")
     if any(value <= 0 for value in values):
         raise argparse.ArgumentTypeError("prompt lengths must be positive")
     if len(set(values)) != len(values):
@@ -774,40 +774,50 @@ def main() -> None:
     results = run_experiment(args)
     print_results(results)
 
-    prompt_lengths = [result.prompt_length for result in results]
-    median_latencies = [result.median_ms for result in results]
-    alpha, coefficient, r_squared = fit_power_law(
-        prompt_lengths,
-        median_latencies,
-    )
-
-    print("=================== Empirical Scaling Fit ===================")
-    print(f"median latency ≈ {coefficient:.6g} × T^{alpha:.3f}")
-    print(f"R²             = {r_squared:.4f}")
-    print("Interpretation: an exponent near 1 is linear; near 2 is quadratic.")
-    print("The measured exponent can differ because kernels, launch overhead,")
-    print("hardware utilization, and memory behavior also affect latency.")
-    print("=============================================================\n")
-
     args.out_dir.mkdir(parents=True, exist_ok=True)
+
     latency_path = args.out_dir / "prefill_latency_vs_prompt_length.png"
     throughput_path = args.out_dir / "prefill_throughput_vs_prompt_length.png"
-    log_log_path = args.out_dir / "prefill_latency_loglog_fit.png"
 
     plot_latency(results, latency_path)
     plot_throughput(results, throughput_path)
-    plot_log_log_fit(
-        results,
-        alpha,
-        coefficient,
-        r_squared,
-        log_log_path,
-    )
 
     print("Saved aggregated plots:")
     print(f"  {latency_path}")
     print(f"  {throughput_path}")
-    print(f"  {log_log_path}")
+
+    # A scaling fit requires at least two prompt lengths.
+    if len(results) >= 2:
+        prompt_lengths = [result.prompt_length for result in results]
+        median_latencies = [result.median_ms for result in results]
+
+        alpha, coefficient, r_squared = fit_power_law(
+            prompt_lengths,
+            median_latencies,
+        )
+
+        print("\n=================== Empirical Scaling Fit ===================")
+        print(f"median latency ≈ {coefficient:.6g} × T^{alpha:.3f}")
+        print(f"R²             = {r_squared:.4f}")
+        print("Interpretation: an exponent near 1 is linear; near 2 is quadratic.")
+        print("The measured exponent can differ because kernels, launch overhead,")
+        print("hardware utilization, and memory behavior also affect latency.")
+        print("=============================================================\n")
+
+        log_log_path = args.out_dir / "prefill_latency_loglog_fit.png"
+
+        plot_log_log_fit(
+            results,
+            alpha,
+            coefficient,
+            r_squared,
+            log_log_path,
+        )
+
+        print(f"  {log_log_path}")
+    else:
+        print("\nScaling fit skipped: at least two prompt lengths are required.")
+
     print("No individual timing samples were saved.")
 
 
