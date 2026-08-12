@@ -359,20 +359,16 @@ $\frac{L(2T)}{L(T)} = 2^{\alpha}$
 Now take the base-2 logarithm:  
 $\log_{2}\left(\frac{L(2T)}{L(T)}\right) = \log_{2}\left(2^{\alpha}\right)$  
 
-Because:
-$$
-\log_{2}\left(2^{\alpha}\right) = \alpha
-$$
+Because:  
+$\log_{2}\left(2^{\alpha}\right) = \alpha$  
+
 we obtain:
-$$
-\boxed{
-\alpha
-=
+$\boxed{\alpha =
 \log_{2}\left(
 \frac{L(2T)}{L(T)}
 \right)
 }
-$$
+$  
 
 Why this works intuitively  
 The ratio  
