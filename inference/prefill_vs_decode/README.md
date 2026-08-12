@@ -1009,10 +1009,8 @@ Big-O analysis tells us how the amount of work grows. Profiling tells us how tha
 As prompt length grows, the bottleneck moves decisively away from the linear Q/K/V/O projections and toward the quadratic attention-score path.
 
 For this manual attention implementation:
-$
-\boxed{
-\text{long-context prefill cost is dominated by materialized attention}
-}
-$  
+$$
+\boxed{\mathrm{long\text{-}context\ prefill\ cost\ is\ dominated\ by\ materialized\ attention}}
+$$
 
 The experiment demonstrates why optimizing long-context attention requires more than making GEMMs faster: eliminating or reducing the cost of materializing and repeatedly traversing the $(T\times T)$ score matrix becomes increasingly important.
