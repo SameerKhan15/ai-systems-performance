@@ -806,7 +806,8 @@ Things to look out for:
 For our manual attention implementation, I’d expect the broad structure to reflect something like:  
 $Q,K,V projections→QK^T→mask/softmax→AV→W_O$  
 
-## Nsight Systems Analysis — Prefill Scaling  
+## Nsight Systems Analysis — Prefill Scaling
+
 ## Experiment
 
 Profile one attention-only transformer block on an NVIDIA A100 while varying prompt length:
@@ -820,7 +821,8 @@ Profile one attention-only transformer block on an NVIDIA A100 while varying pro
 - Each Nsight capture: 3 warmups + 1 timed iteration
 
 The manual attention path is:
-$
+
+$$
 QK^T
 \rightarrow
 \text{scale}
@@ -830,26 +832,31 @@ QK^T
 \text{softmax}
 \rightarrow
 AV
-$  
+$$
 
-The theoretical arithmetic model is:  
-$
+The theoretical arithmetic model is:
+
+$$
 \text{Projection MACs} = 4TD^2
-$
-$
+$$
+
+$$
 \text{Attention MACs} = 2T^2D
-$
+$$
 
-**Therefore projection work grows linearly with prompt length, while attention work grows quadratically.**  
+**Therefore, projection work grows linearly with prompt length, while attention work grows quadratically.**
 
-For \(D=512\), the theoretical crossover occurs when:
-$
+For $D = 512$, the theoretical crossover occurs when:
+
+$$
 4TD^2 = 2T^2D
-$
+$$
+
 which gives:
-$
-T=2D=1024
-$
+
+$$
+T = 2D = 1024
+$$
 
 ---
 
@@ -858,11 +865,11 @@ $
 The following numbers exclude one-time setup kernels such as causal-mask construction and represent approximately one forward pass.
 
 | Prompt Length | GPU Kernel Time | Growth vs Previous | Attention-Path Share |
-|---:|---:|---:|---:|
-| 512 | ~91 µs | — | ~54% |
-| 1024 | ~222 µs | 2.43× | ~73% |
-| 2048 | ~1.00 ms | 4.52× | ~92% |
-| 4096 | ~2.77 ms | 2.77× | ~95% |
+| ------------: | --------------: | -----------------: | -------------------: |
+|           512 |          ~91 µs |                  — |                 ~54% |
+|          1024 |         ~222 µs |              2.43× |                 ~73% |
+|          2048 |        ~1.00 ms |              4.52× |                 ~92% |
+|          4096 |        ~2.77 ms |              2.77× |                 ~95% |
 
 The measured profile therefore shows a clear transition from a mixed projection/attention workload at short prompts to an overwhelmingly attention-dominated workload at long prompts.
 
@@ -870,11 +877,11 @@ The measured profile therefore shows a clear transition from a mixed projection/
 
 ### 1. The theoretical crossover is visible in the real GPU profile
 
-At \(T=512\), projection GEMMs are still a major contributor to execution time.
+At $T = 512$, projection GEMMs are still a major contributor to execution time.
 
-By \(T=1024\), which is exactly the theoretical crossover \(T=2D\), attention-related kernels already dominate GPU execution.
+By $T = 1024$, which is exactly the theoretical crossover $T = 2D$, attention-related kernels already dominate GPU execution.
 
-At \(T=2048\) and \(4096\), approximately 92–95% of repeated GPU kernel time belongs to the attention path.
+At $T = 2048$ and $T = 4096$, approximately 92–95% of repeated GPU kernel time belongs to the attention path.
 
 The simple MAC model therefore correctly predicts the **direction of the bottleneck transition**.
 
@@ -884,19 +891,23 @@ The simple MAC model therefore correctly predicts the **direction of the bottlen
 
 Approximate projection-GEMM time per forward:
 
-| T | Projection GEMMs |
-|---:|---:|
-| 512 | 30.1 µs |
-| 1024 | 40.9 µs |
-| 2048 | 50.4 µs |
-| 4096 | 82.0 µs |
+|    T | Projection GEMMs |
+| ---: | ---------------: |
+|  512 |          30.1 µs |
+| 1024 |          40.9 µs |
+| 2048 |          50.4 µs |
+| 4096 |          82.0 µs |
 
-Although projection MACs double whenever \(T\) doubles, kernel latency grows by substantially less than 2× over much of the range.
+Although projection MACs double whenever $T$ doubles, kernel latency grows by substantially less than 2× over much of the range.
 
 This is an important GPU-performance lesson:
-$
-\text{more arithmetic} \not\Rightarrow \text{proportionally more latency}
-$  
+
+$$
+\text{more arithmetic}
+\not\Rightarrow
+\text{proportionally more latency}
+$$
+
 Larger matrix operations can make better use of the GPU and amortize fixed overheads.
 
 ---
@@ -904,37 +915,50 @@ Larger matrix operations can make better use of the GPU and amortize fixed overh
 ### 3. Operations over the score matrix expose the quadratic behavior very clearly
 
 The manual implementation materializes the attention-score tensor:
-$
-[B,H,T,T]
-$  
-When \(T\) doubles, this tensor contains 4× as many elements.
 
-From $(T=2048\rightarrow4096)$:
-$
-\text{scale}: 78.8\ \mu s \rightarrow 310.4\ \mu s
-$  
-which is:  
-$
-3.94\times
-$  
-and:
-$
-\text{masked fill}: 192.6\ \mu s \rightarrow 763.0\ \mu s
-$  
+$$
+[B, H, T, T]
+$$
+
+When $T$ doubles, this tensor contains 4× as many elements.
+
+From $T = 2048 \rightarrow 4096$:
+
+$$
+\text{scale}: 78.8\ \mu\text{s}
+\rightarrow
+310.4\ \mu\text{s}
+$$
+
 which is:
-$
+
+$$
+3.94\times
+$$
+
+and:
+
+$$
+\text{masked fill}: 192.6\ \mu\text{s}
+\rightarrow
+763.0\ \mu\text{s}
+$$
+
+which is:
+
+$$
 3.96\times
-$  
+$$
 
 Both are almost exactly the expected 4× increase.
 
-This is direct empirical evidence of the cost of operating over a materialized \(T^2\) attention matrix.
+This is direct empirical evidence of the cost of operating over a materialized $T^2$ attention matrix.
 
 ---
 
 ### 4. Kernel dispatch can create performance cliffs
 
-Softmax changed implementation between \(T=1024\) and \(T=2048\).
+Softmax changed implementation between $T = 1024$ and $T = 2048$.
 
 At 1024, PyTorch used:
 
@@ -945,26 +969,30 @@ At 2048 and 4096, it used:
 `cunn_SoftMaxForwardSmem`
 
 Softmax latency changed from approximately:
-$
-43.6\ \mu s
-\rightarrow
-438.8\ \mu s
-$  
 
-between 1024 and 2048:
-$
+$$
+43.6\ \mu\text{s}
+\rightarrow
+438.8\ \mu\text{s}
+$$
+
+between 1024 and 2048, which is:
+
+$$
 \approx 10.1\times
-$
+$$
+
 despite prompt length increasing only 2×.
 
 The implementation switch coincides with this large performance discontinuity. It should not be interpreted as proof that the kernel switch alone caused the entire increase, but it demonstrates why real GPU latency can contain sharp regime changes that are invisible in Big-O analysis.
 
 Once already using the shared-memory implementation:
-$
-438.8\ \mu s
+
+$$
+438.8\ \mu\text{s}
 \rightarrow
-1050.6\ \mu s
-$  
+1050.6\ \mu\text{s}
+$$
 
 from 2048 to 4096, or only about 2.4×.
 
@@ -973,32 +1001,18 @@ from 2048 to 4096, or only about 2.4×.
 ### 5. Algorithmic complexity is not a latency model
 
 Doubling prompt length produced:
-$
-512\rightarrow1024: 2.43\times
-$  
-$
-1024\rightarrow2048: 4.52\times
-$  
-$
-2048\rightarrow4096: 2.77\times
-$  
+
+| Prompt-Length Change | Measured Latency Growth |
+| -------------------: | ----------------------: |
+| $512 \rightarrow 1024$ | 2.43× |
+| $1024 \rightarrow 2048$ | 4.52× |
+| $2048 \rightarrow 4096$ | 2.77× |
 
 So measured latency does **not** follow a smooth quadratic curve.
 
 A better mental model is:
-$
-\boxed{
-\text{algorithmic work}
-\rightarrow
-\text{tensor shapes}
-\rightarrow
-\text{kernel selection}
-\rightarrow
-\text{GPU utilization / memory behavior}
-\rightarrow
-\text{latency}
-}
-$  
+
+> **Algorithmic work → tensor shapes → kernel selection → GPU utilization / memory behavior → latency**
 
 Big-O analysis tells us how the amount of work grows. Profiling tells us how that work actually executes on the hardware.
 
@@ -1008,7 +1022,8 @@ Big-O analysis tells us how the amount of work grows. Profiling tells us how tha
 
 As prompt length grows, the bottleneck moves decisively away from the linear Q/K/V/O projections and toward the quadratic attention-score path.
 
-For this manual attention implementation:  
-> **Long-context prefill cost is dominated by materialized attention.**  
+For this manual attention implementation:
 
-The experiment demonstrates why optimizing long-context attention requires more than making GEMMs faster: eliminating or reducing the cost of materializing and repeatedly traversing the $(T\times T)$ score matrix becomes increasingly important.
+> **Long-context prefill cost is dominated by materialized attention.**
+
+The experiment demonstrates why optimizing long-context attention requires more than making GEMMs faster: eliminating or reducing the cost of materializing and repeatedly traversing the $T \times T$ score matrix becomes increasingly important.
