@@ -114,3 +114,88 @@ Only ~2 such blocks fit
 So although the hardware could track far more warps, shared-memory usage became the limiting resource.  
 
 **Registers + shared memory + large warp/thread capacity allow an SM to keep many threads resident simultaneously, which is what enables GPU thread-level parallelism.**  
+
+Resident warps are the pool of work, and the four warp schedulers decide which ready warps feed the execution pipelines on a given cycle.  NVIDIA’s current Blackwell profiling documentation explicitly refers to the four warp schedulers.  
+
+**Resident work**  
+````
+up to 64 warps
+waiting / ready / stalled
+````
+**Warp schedulers**  
+````
+4
+independent schedulers
+````
+**Conceptual max**  
+````
+4 × up to 2
+warp instructions / cycle*
+````
+
+Cycle N: schedulers select ready warps  
+````
+Pool of resident warps
+Warp 0
+Warp 1
+Warp 2
+...
+Warp 63
+Some are ready; others may be waiting on data or dependencies.
+````
+Each scheduler chooses a ready warp from its scheduling domain  
+````
+Scheduler 0
+selects Warp 7
+ADD + LOAD
+independent → dual issue
+````
+````
+Scheduler 1
+selects Warp 18
+FMA
+single issue
+````
+````
+Scheduler 2
+selects Warp 31
+INT + STORE
+independent → dual issue
+````
+````
+Scheduler 3
+selects Warp 52
+LOAD
+single issue
+````
+Instructions flow into different execution pipelines  
+````
+FP / INT
+arithmetic
+````
+````
+Load / Store
+memory
+````
+````
+Tensor
+matrix operations
+````
+````
+Specialized
+other pipelines
+````
+````
+64 resident warps
+lots of available thread-level parallelism
+|
+4 warp schedulers
+choose ready warps each cycle
+|
+Instruction issue
+possibly two independent instructions from a selected warp
+|
+Execution pipelines
+arithmetic · memory · tensor · specialized
+````
+ 
