@@ -1194,9 +1194,10 @@ and:
 
 ## The comparison we're ultimately building  
 At the end we should be able to write:  
-$Prefill attention = O(T^2)$  
+Prefill attention = $O(T^2)$  
+
 versus:  
-$Decode attention/token = O(LD)$  
+Decode attention/token = $O(LD)$  
 but then discover experimentally that this is only the beginning of the performance story.  
 
 Prefill taught us:  
