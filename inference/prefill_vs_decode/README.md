@@ -1146,13 +1146,13 @@ That's only for our single synthetic attention block.
 A real model with, say, dozens of layers multiplies this substantially.  
 And every decode step must access the historical K/V state again.  
 That leads to our central hypothesis:  
-$$
+$
 L \uparrow
 \;\Rightarrow\;
 \text{KV-cache traffic} \uparrow
 \;\Rightarrow\;
 \text{decode latency/token} \uparrow
-$$
+$
 approximately linearly in the simple algorithmic model.  
 
 ## Predictions before touching the GPU  
