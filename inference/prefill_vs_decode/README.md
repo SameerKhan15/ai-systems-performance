@@ -1027,3 +1027,183 @@ For this manual attention implementation:
 > **Long-context prefill cost is dominated by materialized attention.**
 
 The experiment demonstrates why optimizing long-context attention requires more than making GEMMs faster: eliminating or reducing the cost of materializing and repeatedly traversing the $T \times T$ score matrix becomes increasingly important.
+
+# Decode Scaling and KV Cache  
+Companion to the prefill lab  
+Same learning method: `derive -> predict -> measure -> profile -> explain`  
+
+The main question this lab should answer:  
+**"How does the latency of generating on token change as the existing KV cache/context grows"**  
+
+We’ll hold everything else constant:  
+````
+B = 1
+D = 512
+H = 8
+Dh = 64
+dtype = fp16
+GPU = A100
+context lengths L = 512, 1024, 2048, 4096, 8192
+````
+Unlike prefill, we process one new token at a time.  
+
+## First-principles model  
+During decode, the new query has shape:  
+`Q:[B,H,1,D_h]`  
+while the existing cache contains:  
+````
+K_cache:[B,H,L,D_h]
+V_cache:[B,H,L,D_h]
+````
+produces:  
+`[B,H,1,L]`  
+
+rather than prefill's:  
+`[B,H,T,T]`  
+
+That is the fundamental difference.  
+
+### QK attention work  
+Per head:  
+$1 \times D_h \; @ \; D_h \times L$  
+costs:  
+$LD_h$ MACs  
+
+Across H heads:  
+$HLD_h = LD$  
+
+because:  
+$HD_h = D$  
+
+Then AV costs another:  
+`LD`  
+
+Therefore:  
+`Decode attention MACs = 2BLD`  
+
+So decode attention is linear in context length:  
+`O(L)`  
+per generated token.  
+
+Compare that with prefill:  
+$O(T^2)$ for attention  
+
+### Projection work behaves differently too  
+For one new token, Q/K/V/O projections each cost:  
+$D^2$  
+Therefore:  
+$Decode projection MACs = 4BD^2$  
+
+Notice what disappeared: `T`  
+
+**Projection work per generated token is essentially constant with respect to context length.**  
+
+So our decode model is:  
+$Total Decode MACs = 4BD^2 + 2BLD$  
+
+For our configuration:  
+`B=1,D=512`  
+
+we get:  
+$4D^2 = 1,048,576$  
+projection MACs per token.  
+
+Attention becomes:  
+`2LD=1024L`  
+
+Interestingly, equality again occurs at:  
+$4D^2=2LD$  
+giving:  
+`L = 2D = 1024`  
+
+But—and this will be important—the latency behavior will likely look very different from the prefill crossover because these decode matrix operations are tiny and the KV cache must be repeatedly read.  
+
+### KV-cache traffic is the other major prediction  
+Each cached token contains K and V.  
+Number of cached elements: `2BLD`  
+
+For FP16:  
+`2 bytes/element`  
+
+So:  
+`KV bytes=2BLD × 2`  
+
+With `B=1,D=512`:  
+`KV cache = 2048L bytes`  
+per transformer layer.  
+
+That gives:  
+
+| Context (L) | K+V cache per layer |
+| ----------: | ------------------: |
+|         512 |               1 MiB |
+|        1024 |               2 MiB |
+|        2048 |               4 MiB |
+|        4096 |               8 MiB |
+|        8192 |              16 MiB |
+
+That's only for our single synthetic attention block.  
+A real model with, say, dozens of layers multiplies this substantially.  
+And every decode step must access the historical K/V state again.  
+That leads to our central hypothesis:  
+$$
+L \uparrow
+\;\Rightarrow\;
+\text{KV-cache traffic} \uparrow
+\;\Rightarrow\;
+\text{decode latency/token} \uparrow
+$$
+approximately linearly in the simple algorithmic model.  
+
+## Predictions before touching the GPU  
+Let's record these now so we don't retrofit explanations after seeing the measurements.  
+
+### Prediction A  
+As: `L → 2L`  
+attention MACs should approximately double:  
+`2LD → 4LD`  
+Not quadruple like prefill.  
+
+### Prediction B  
+KV-cache bytes read should approximately double.  
+
+### Prediction C  
+Projection work should remain approximately constant.  
+
+### Prediction D  
+Latency probably will not scale exactly 2×.  
+
+Just like the prefill lab:  
+`algorithmic work != latency`  
+
+### Prediction E  
+Decode should expose much poorer compute utilization than prefill.  
+Prefill could issue large GEMMs involving hundreds or thousands of tokens.  
+Decode is fundamentally operating on 1 token. That makes it harder to fill a massive A100 with useful computation.  
+
+### Prediction F  
+As context becomes long, we expect KV-cache movement to become increasingly important.  
+This is the hypothesis that will eventually connect directly to `arithmetic intensity` and `Roofline`  
+
+## Measurements  
+The unprofiled benchmark should collect:  
+* `median latency per generated token`  
+* `p95 latency per generated token`  
+and:  
+`decode tokens/sec = 1000 / (latency (ms) / token)`  
+
+## The comparison we're ultimately building  
+At the end we should be able to write:  
+$Prefill attention = O(T^2)$  
+versus:  
+$Decode attention/token = O(LD)$  
+but then discover experimentally that this is only the beginning of the performance story.  
+
+Prefill taught us:  
+`Large amounts of arithmetic can map efficiently to GPUs`  
+
+Decode should teach us something closer to:  
+`Small sequential computations with repeatedly accessed state can be much harder to execute efficiently on GPUs`  
+And that is exactly the right setup for GPU Architecture Foundations.  
+
+
