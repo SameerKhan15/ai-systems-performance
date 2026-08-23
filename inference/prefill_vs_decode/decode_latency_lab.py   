@@ -1,0 +1,830 @@
+#!/usr/bin/env python3
+"""
+Decode Latency vs. KV-Cache Length
+==================================
+
+A synthetic, reproducible single-layer decode microbenchmark that complements
+the prefill latency lab.
+
+For every measured KV length L:
+  - one new token is embedded
+  - Q, K_new, V_new are projected
+  - K_new and V_new are written into the final slot of a preallocated cache
+  - Q attends over L total KV positions
+  - the attention result is projected through W_o
+
+Definition: L is the total KV length visible to the decode step, including the
+current token. The first L-1 positions are synthetic history; the last slot is
+reserved for the current token.
+
+Theoretical one-token decode model:
+    projection MACs      = 4 * B * D^2
+    attention-score MACs = B * L * D
+    attention-value MACs = B * L * D
+    attention MACs       = 2 * B * L * D
+    logical KV bytes     = 2 * B * L * D * dtype_bytes
+
+This lab intentionally uses manual/materialized attention so the mapping from
+equations to GPU kernels remains easy to inspect.
+
+Example A100 run:
+    python decode_latency_lab.py \
+        --device cuda \
+        --dtype float16 \
+        --embed-dim 512 \
+        --num-heads 8 \
+        --context-lengths 512,1024,2048,4096,8192,16384,32768,65536,131072 \
+        --warmups 5 \
+        --runs 30
+
+Example single-length Nsight run:
+    nsys profile \
+        --trace=cuda,nvtx,osrt \
+        --sample=none \
+        --force-overwrite=true \
+        --output=decode_L2048 \
+        python decode_latency_lab.py \
+            --device cuda \
+            --dtype float16 \
+            --embed-dim 512 \
+            --num-heads 8 \
+            --context-lengths 2048 \
+            --warmups 3 \
+            --runs 1 \
+            --skip-plots
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+import statistics
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Sequence, Tuple
+
+import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+@dataclass(frozen=True)
+class LabConfig:
+    embed_dim: int
+    num_heads: int
+    batch_size: int
+    vocab_size: int
+    dtype: torch.dtype
+    device: str
+
+    @property
+    def head_dim(self) -> int:
+        if self.embed_dim % self.num_heads != 0:
+            raise ValueError("embed_dim must be divisible by num_heads")
+        return self.embed_dim // self.num_heads
+
+    @property
+    def dtype_bytes(self) -> int:
+        return torch.empty((), dtype=self.dtype).element_size()
+
+
+@dataclass(frozen=True)
+class DecodeAccounting:
+    context_length: int
+    projection_macs: int
+    attention_score_macs: int
+    attention_value_macs: int
+    attention_macs: int
+    total_macs: int
+    logical_kv_elements: int
+    logical_kv_bytes: int
+    logical_score_elements: int
+    logical_score_bytes: int
+    logical_kv_write_bytes: int
+
+
+@dataclass(frozen=True)
+class BenchmarkResult:
+    context_length: int
+    median_ms: float
+    p95_ms: float
+    median_decode_tokens_per_second: float
+    accounting: DecodeAccounting
+
+
+def calculate_decode_accounting(
+    *,
+    batch_size: int,
+    context_length: int,
+    embed_dim: int,
+    num_heads: int,
+    dtype_bytes: int,
+) -> DecodeAccounting:
+    """Calculate one-token decode MACs and logical tensor traffic.
+
+    ``context_length`` is the total number of K/V positions visible to the
+    current token, including the current token's newly written K/V slot.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if context_length <= 0:
+        raise ValueError("context_length must be positive")
+    if embed_dim <= 0:
+        raise ValueError("embed_dim must be positive")
+    if num_heads <= 0:
+        raise ValueError("num_heads must be positive")
+    if embed_dim % num_heads != 0:
+        raise ValueError("embed_dim must be divisible by num_heads")
+    if dtype_bytes <= 0:
+        raise ValueError("dtype_bytes must be positive")
+
+    head_dim = embed_dim // num_heads
+
+    # One new token goes through Q, K, V, and O: four [D, D] projections.
+    projection_macs = 4 * batch_size * embed_dim * embed_dim
+
+    # Q: [B,H,1,Dh], K: [B,H,L,Dh] -> scores: [B,H,1,L].
+    attention_score_macs = batch_size * num_heads * context_length * head_dim
+    attention_value_macs = attention_score_macs
+    attention_macs = attention_score_macs + attention_value_macs
+    total_macs = projection_macs + attention_macs
+
+    # K and V each contain B*H*L*Dh = B*L*D elements.
+    logical_kv_elements = 2 * batch_size * context_length * embed_dim
+    logical_kv_bytes = logical_kv_elements * dtype_bytes
+
+    # One score per head per visible KV position.
+    logical_score_elements = batch_size * num_heads * context_length
+    logical_score_bytes = logical_score_elements * dtype_bytes
+
+    # Each step writes one K and one V vector.
+    logical_kv_write_bytes = 2 * batch_size * embed_dim * dtype_bytes
+
+    return DecodeAccounting(
+        context_length=context_length,
+        projection_macs=projection_macs,
+        attention_score_macs=attention_score_macs,
+        attention_value_macs=attention_value_macs,
+        attention_macs=attention_macs,
+        total_macs=total_macs,
+        logical_kv_elements=logical_kv_elements,
+        logical_kv_bytes=logical_kv_bytes,
+        logical_score_elements=logical_score_elements,
+        logical_score_bytes=logical_score_bytes,
+        logical_kv_write_bytes=logical_kv_write_bytes,
+    )
+
+
+class DecodeAttentionBlock(nn.Module):
+    """One attention-only transformer block for one-token autoregressive decode."""
+
+    def __init__(self, cfg: LabConfig, seed: int = 7) -> None:
+        super().__init__()
+        self.cfg = cfg
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+        self.embedding = nn.Embedding(cfg.vocab_size, cfg.embed_dim)
+        self.wq = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
+        self.wk = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
+        self.wv = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
+        self.wo = nn.Linear(cfg.embed_dim, cfg.embed_dim, bias=False)
+
+        for parameter in self.parameters():
+            nn.init.normal_(parameter, mean=0.0, std=0.02)
+
+        self.to(device=cfg.device, dtype=cfg.dtype)
+        self.eval()
+
+    def split_heads(self, x: torch.Tensor) -> torch.Tensor:
+        # [B, 1, D] -> [B, H, 1, Dh]
+        batch_size, token_count, embed_dim = x.shape
+        if token_count != 1:
+            raise ValueError("decode step expects exactly one token")
+        if embed_dim != self.cfg.embed_dim:
+            raise ValueError("unexpected embedding dimension")
+        return x.view(
+            batch_size,
+            token_count,
+            self.cfg.num_heads,
+            self.cfg.head_dim,
+        ).transpose(1, 2)
+
+    @staticmethod
+    def merge_heads(x: torch.Tensor) -> torch.Tensor:
+        # [B, H, 1, Dh] -> [B, 1, D]
+        batch_size, num_heads, token_count, head_dim = x.shape
+        return (
+            x.transpose(1, 2)
+            .contiguous()
+            .view(batch_size, token_count, num_heads * head_dim)
+        )
+
+    def project_new_token(
+        self, token_ids: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if token_ids.ndim != 2 or token_ids.shape[1] != 1:
+            raise ValueError("token_ids must have shape [B, 1]")
+        x = self.embedding(token_ids)
+        q = self.split_heads(self.wq(x))
+        k_new = self.split_heads(self.wk(x))
+        v_new = self.split_heads(self.wv(x))
+        return q, k_new, v_new
+
+    def forward(
+        self,
+        token_ids: torch.Tensor,
+        k_cache: torch.Tensor,
+        v_cache: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run one decode step against a preallocated fixed-length KV cache.
+
+        The final cache position is reserved for the current token. Historical
+        positions [0:L-1) are left untouched.
+        """
+        if k_cache.shape != v_cache.shape:
+            raise ValueError("k_cache and v_cache must have the same shape")
+        if k_cache.ndim != 4:
+            raise ValueError("KV cache must have shape [B, H, L, Dh]")
+
+        batch_size, num_heads, context_length, head_dim = k_cache.shape
+        expected = (
+            self.cfg.batch_size,
+            self.cfg.num_heads,
+            context_length,
+            self.cfg.head_dim,
+        )
+        if tuple(k_cache.shape) != expected:
+            raise ValueError(
+                "unexpected KV-cache shape: "
+                f"got {tuple(k_cache.shape)}, expected {expected}"
+            )
+        if context_length <= 0:
+            raise ValueError("context length must be positive")
+        if token_ids.shape != (batch_size, 1):
+            raise ValueError(
+                f"token_ids must have shape {(batch_size, 1)}, got {tuple(token_ids.shape)}"
+            )
+        if num_heads != self.cfg.num_heads or head_dim != self.cfg.head_dim:
+            raise ValueError("KV-cache head dimensions do not match config")
+
+        q, k_new, v_new = self.project_new_token(token_ids)
+
+        # Preallocated cache: overwrite only the current-token slot.
+        k_cache[:, :, context_length - 1 : context_length, :] = k_new
+        v_cache[:, :, context_length - 1 : context_length, :] = v_new
+
+        scale = 1.0 / math.sqrt(self.cfg.head_dim)
+        scores = torch.matmul(q, k_cache.transpose(-2, -1)) * scale
+
+        # No causal mask: the cache contains only history plus current token.
+        weights = F.softmax(scores, dim=-1)
+        attention_output = torch.matmul(weights, v_cache)
+
+        merged = self.merge_heads(attention_output)
+        return self.wo(merged)
+
+
+def synchronize(device: str) -> None:
+    if device == "cuda":
+        torch.cuda.synchronize()
+    elif device == "mps":
+        torch.mps.synchronize()
+
+
+def nearest_rank_percentile(values: Sequence[float], percentile: float) -> float:
+    """Return the nearest-rank percentile for a non-empty sequence."""
+    if not values:
+        raise ValueError("values must not be empty")
+    if not 0.0 < percentile <= 100.0:
+        raise ValueError("percentile must be in (0, 100]")
+    ordered = sorted(values)
+    rank = math.ceil((percentile / 100.0) * len(ordered))
+    return ordered[rank - 1]
+
+
+def make_token_ids(
+    *, batch_size: int, vocab_size: int, device: str, seed: int
+) -> torch.Tensor:
+    generator_device = device if device == "cuda" else "cpu"
+    generator = torch.Generator(device=generator_device)
+    generator.manual_seed(seed)
+    token_ids = torch.randint(
+        low=0,
+        high=vocab_size,
+        size=(batch_size, 1),
+        dtype=torch.long,
+        generator=generator,
+        device=generator_device,
+    )
+    if token_ids.device.type != device:
+        token_ids = token_ids.to(device)
+    return token_ids
+
+
+def make_synthetic_kv_cache(
+    *, cfg: LabConfig, context_length: int, seed: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Create deterministic preallocated K/V caches.
+
+    Historical positions are synthetic. The final position is initialized to
+    zero and overwritten by the current token on every decode step.
+    """
+    if context_length <= 0:
+        raise ValueError("context_length must be positive")
+
+    shape = (cfg.batch_size, cfg.num_heads, context_length, cfg.head_dim)
+    generator_device = cfg.device if cfg.device == "cuda" else "cpu"
+    generator = torch.Generator(device=generator_device)
+    generator.manual_seed(seed + context_length)
+
+    k_cache = torch.randn(
+        shape,
+        dtype=cfg.dtype,
+        device=generator_device,
+        generator=generator,
+    )
+    v_cache = torch.randn(
+        shape,
+        dtype=cfg.dtype,
+        device=generator_device,
+        generator=generator,
+    )
+
+    if k_cache.device.type != cfg.device:
+        k_cache = k_cache.to(cfg.device)
+        v_cache = v_cache.to(cfg.device)
+
+    k_cache[:, :, -1:, :].zero_()
+    v_cache[:, :, -1:, :].zero_()
+    return k_cache, v_cache
+
+
+@torch.inference_mode()
+def benchmark_context_length(
+    *,
+    model: DecodeAttentionBlock,
+    token_ids: torch.Tensor,
+    k_cache: torch.Tensor,
+    v_cache: torch.Tensor,
+    warmups: int,
+    runs: int,
+) -> Tuple[float, float]:
+    """Return median and p95 latency in ms for one fixed-length decode step."""
+    if warmups < 0:
+        raise ValueError("warmups must be non-negative")
+    if runs <= 0:
+        raise ValueError("runs must be positive")
+
+    # Cache allocation/initialization intentionally sits outside timing.
+    for _ in range(warmups):
+        output = model(token_ids, k_cache, v_cache)
+        _ = output[:, -1, :]
+    synchronize(model.cfg.device)
+
+    samples_ms: List[float] = []
+
+    if model.cfg.device == "cuda":
+        for _ in range(runs):
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            output = model(token_ids, k_cache, v_cache)
+            _ = output[:, -1, :]
+            end_event.record()
+            end_event.synchronize()
+            samples_ms.append(float(start_event.elapsed_time(end_event)))
+    else:
+        for _ in range(runs):
+            synchronize(model.cfg.device)
+            start = time.perf_counter_ns()
+            output = model(token_ids, k_cache, v_cache)
+            _ = output[:, -1, :]
+            synchronize(model.cfg.device)
+            elapsed_ns = time.perf_counter_ns() - start
+            samples_ms.append(elapsed_ns / 1_000_000.0)
+
+    return statistics.median(samples_ms), nearest_rank_percentile(samples_ms, 95.0)
+
+
+def fit_power_law(
+    context_lengths: Sequence[int], median_latencies_ms: Sequence[float]
+) -> Tuple[float, float, float]:
+    """Fit latency ~= coefficient * context_length^alpha in log space."""
+    if len(context_lengths) != len(median_latencies_ms):
+        raise ValueError("x and y must have the same length")
+    if len(context_lengths) < 2:
+        raise ValueError("at least two observations are required")
+    if any(x <= 0 for x in context_lengths):
+        raise ValueError("context lengths must be positive")
+    if any(y <= 0 for y in median_latencies_ms):
+        raise ValueError("latencies must be positive")
+
+    x = [math.log(float(value)) for value in context_lengths]
+    y = [math.log(float(value)) for value in median_latencies_ms]
+    x_mean = statistics.fmean(x)
+    y_mean = statistics.fmean(y)
+    covariance = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+    variance_x = sum((xi - x_mean) ** 2 for xi in x)
+    if variance_x == 0:
+        raise ValueError("context lengths must not all be identical")
+
+    alpha = covariance / variance_x
+    intercept = y_mean - alpha * x_mean
+    coefficient = math.exp(intercept)
+    predicted = [intercept + alpha * xi for xi in x]
+    total_sum_squares = sum((yi - y_mean) ** 2 for yi in y)
+    residual_sum_squares = sum((yi - pi) ** 2 for yi, pi in zip(y, predicted))
+    r_squared = (
+        1.0 - residual_sum_squares / total_sum_squares
+        if total_sum_squares > 0
+        else 1.0
+    )
+    return alpha, coefficient, r_squared
+
+
+def bytes_to_human(num_bytes: int) -> str:
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    value = float(num_bytes)
+    for unit in units:
+        if value < 1024.0 or unit == units[-1]:
+            return f"{value:.2f} {unit}"
+        value /= 1024.0
+    raise AssertionError("unreachable")
+
+
+def macs_to_human(macs: int) -> str:
+    if macs < 1_000:
+        return str(macs)
+    if macs < 1_000_000:
+        return f"{macs / 1_000:.2f} K"
+    if macs < 1_000_000_000:
+        return f"{macs / 1_000_000:.2f} M"
+    if macs < 1_000_000_000_000:
+        return f"{macs / 1_000_000_000:.2f} B"
+    return f"{macs / 1_000_000_000_000:.2f} T"
+
+
+def print_configuration(
+    cfg: LabConfig, context_lengths: Sequence[int], warmups: int, runs: int
+) -> None:
+    print("\n================ Decode Lab Configuration ================")
+    print(f"device              : {cfg.device}")
+    print(f"dtype               : {str(cfg.dtype).replace('torch.', '')}")
+    print(f"batch size          : {cfg.batch_size}")
+    print(f"embed_dim           : {cfg.embed_dim}")
+    print(f"num_heads           : {cfg.num_heads}")
+    print(f"head_dim            : {cfg.head_dim}")
+    print(f"context lengths L   : {list(context_lengths)}")
+    print(f"warmups per length  : {warmups}")
+    print(f"timed runs/length   : {runs}")
+    print("L includes current token's KV slot.")
+    print("==========================================================\n")
+
+
+def print_results(results: Sequence[BenchmarkResult]) -> None:
+    print("======================= Aggregated Results =======================")
+    header = (
+        f"{'L':>7} "
+        f"{'median ms':>12} "
+        f"{'p95 ms':>12} "
+        f"{'decode tok/s':>15} "
+        f"{'total MACs':>14} "
+        f"{'KV bytes':>12}"
+    )
+    print(header)
+    print("-" * len(header))
+    for result in results:
+        print(
+            f"{result.context_length:7,d} "
+            f"{result.median_ms:12.4f} "
+            f"{result.p95_ms:12.4f} "
+            f"{result.median_decode_tokens_per_second:15,.1f} "
+            f"{macs_to_human(result.accounting.total_macs):>14} "
+            f"{bytes_to_human(result.accounting.logical_kv_bytes):>12}"
+        )
+    print("=================================================================\n")
+
+
+def save_results_csv(results: Sequence[BenchmarkResult], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "context_length",
+                "median_ms",
+                "p95_ms",
+                "median_decode_tokens_per_second",
+                "projection_macs",
+                "attention_score_macs",
+                "attention_value_macs",
+                "attention_macs",
+                "total_macs",
+                "logical_kv_elements",
+                "logical_kv_bytes",
+                "logical_score_elements",
+                "logical_score_bytes",
+                "logical_kv_write_bytes",
+            ]
+        )
+        for result in results:
+            a = result.accounting
+            writer.writerow(
+                [
+                    result.context_length,
+                    f"{result.median_ms:.9f}",
+                    f"{result.p95_ms:.9f}",
+                    f"{result.median_decode_tokens_per_second:.6f}",
+                    a.projection_macs,
+                    a.attention_score_macs,
+                    a.attention_value_macs,
+                    a.attention_macs,
+                    a.total_macs,
+                    a.logical_kv_elements,
+                    a.logical_kv_bytes,
+                    a.logical_score_elements,
+                    a.logical_score_bytes,
+                    a.logical_kv_write_bytes,
+                ]
+            )
+
+
+def plot_latency(results: Sequence[BenchmarkResult], path: Path) -> None:
+    x = [r.context_length for r in results]
+    median = [r.median_ms for r in results]
+    p95 = [r.p95_ms for r in results]
+    plt.figure(figsize=(8, 5))
+    plt.plot(x, median, marker="o", label="median")
+    plt.plot(x, p95, marker="o", label="p95")
+    plt.xlabel("KV length L")
+    plt.ylabel("Latency per decode step (ms)")
+    plt.title("Decode Latency vs. KV-Cache Length")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(path, dpi=160)
+    plt.close()
+
+
+def plot_throughput(results: Sequence[BenchmarkResult], path: Path) -> None:
+    x = [r.context_length for r in results]
+    y = [r.median_decode_tokens_per_second for r in results]
+    plt.figure(figsize=(8, 5))
+    plt.plot(x, y, marker="o")
+    plt.xlabel("KV length L")
+    plt.ylabel("Decode tokens/s")
+    plt.title("Decode Throughput vs. KV-Cache Length")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(path, dpi=160)
+    plt.close()
+
+
+def plot_log_log_fit(
+    results: Sequence[BenchmarkResult],
+    alpha: float,
+    coefficient: float,
+    r_squared: float,
+    path: Path,
+) -> None:
+    x = [r.context_length for r in results]
+    y = [r.median_ms for r in results]
+    fitted = [coefficient * (value ** alpha) for value in x]
+    plt.figure(figsize=(8, 5))
+    plt.loglog(x, y, marker="o", label="measured median")
+    plt.loglog(
+        x,
+        fitted,
+        linestyle="--",
+        label=f"fit: latency ∝ L^{alpha:.3f}, R²={r_squared:.4f}",
+    )
+    plt.xlabel("KV length L (log scale)")
+    plt.ylabel("Latency per decode step, ms (log scale)")
+    plt.title("Decode Latency Scaling — Log-Log Fit")
+    plt.grid(True, which="both", alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(path, dpi=160)
+    plt.close()
+
+
+def parse_context_lengths(raw_value: str) -> List[int]:
+    try:
+        values = [int(item.strip()) for item in raw_value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "context lengths must be comma-separated integers"
+        ) from exc
+    if not values:
+        raise argparse.ArgumentTypeError("provide at least one context length")
+    if any(value <= 0 for value in values):
+        raise argparse.ArgumentTypeError("context lengths must be positive")
+    if len(set(values)) != len(values):
+        raise argparse.ArgumentTypeError("context lengths must not contain duplicates")
+    if values != sorted(values):
+        raise argparse.ArgumentTypeError("context lengths must be increasing")
+    return values
+
+
+def resolve_device(requested: str) -> str:
+    if requested != "auto":
+        if requested == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested but torch.cuda.is_available() is false")
+        if requested == "mps" and not torch.backends.mps.is_available():
+            raise RuntimeError("MPS requested but torch.backends.mps.is_available() is false")
+        return requested
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def resolve_dtype(requested: str, device: str) -> torch.dtype:
+    if requested == "auto":
+        return torch.float16 if device == "cuda" else torch.float32
+    mapping = {
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+        "float32": torch.float32,
+        "float64": torch.float64,
+    }
+    dtype = mapping[requested]
+    if device == "cpu" and dtype == torch.float16:
+        raise ValueError(
+            "float16 CPU matrix multiplication is often unsupported or very slow; "
+            "use float32/bfloat16 or run on CUDA"
+        )
+    return dtype
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Measure one-token decode latency as KV-cache length increases."
+    )
+    parser.add_argument(
+        "--context-lengths",
+        type=parse_context_lengths,
+        default=parse_context_lengths("512,1024,2048,4096,8192"),
+        help="increasing comma-separated KV lengths; L includes current token",
+    )
+    parser.add_argument("--embed-dim", type=int, default=512)
+    parser.add_argument("--num-heads", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--vocab-size", type=int, default=32_000)
+    parser.add_argument("--warmups", type=int, default=5)
+    parser.add_argument("--runs", type=int, default=30)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--device", choices=["auto", "cpu", "cuda", "mps"], default="auto"
+    )
+    parser.add_argument(
+        "--dtype",
+        choices=["auto", "float16", "bfloat16", "float32", "float64"],
+        default="auto",
+    )
+    parser.add_argument(
+        "--torch-threads", type=int, default=1, help="CPU-only PyTorch thread count"
+    )
+    parser.add_argument("--out-dir", type=Path, default=Path("decode_outputs"))
+    parser.add_argument(
+        "--skip-plots",
+        action="store_true",
+        help="skip PNG generation; useful for clean Nsight captures",
+    )
+    return parser
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    if args.embed_dim <= 0:
+        raise ValueError("embed_dim must be positive")
+    if args.num_heads <= 0:
+        raise ValueError("num_heads must be positive")
+    if args.embed_dim % args.num_heads != 0:
+        raise ValueError("embed_dim must be divisible by num_heads")
+    if args.batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if args.vocab_size <= 1:
+        raise ValueError("vocab_size must be greater than 1")
+    if args.warmups < 0:
+        raise ValueError("warmups must be non-negative")
+    if args.runs <= 0:
+        raise ValueError("runs must be positive")
+    if args.torch_threads <= 0:
+        raise ValueError("torch_threads must be positive")
+
+
+def run_experiment(args: argparse.Namespace) -> List[BenchmarkResult]:
+    validate_args(args)
+    device = resolve_device(args.device)
+    dtype = resolve_dtype(args.dtype, device)
+    if device == "cpu":
+        torch.set_num_threads(args.torch_threads)
+
+    cfg = LabConfig(
+        embed_dim=args.embed_dim,
+        num_heads=args.num_heads,
+        batch_size=args.batch_size,
+        vocab_size=args.vocab_size,
+        dtype=dtype,
+        device=device,
+    )
+    print_configuration(cfg, args.context_lengths, args.warmups, args.runs)
+
+    model = DecodeAttentionBlock(cfg, seed=args.seed)
+    token_ids = make_token_ids(
+        batch_size=cfg.batch_size,
+        vocab_size=cfg.vocab_size,
+        device=cfg.device,
+        seed=args.seed + 10_000,
+    )
+
+    results: List[BenchmarkResult] = []
+    for context_length in args.context_lengths:
+        k_cache, v_cache = make_synthetic_kv_cache(
+            cfg=cfg,
+            context_length=context_length,
+            seed=args.seed + 20_000,
+        )
+        median_ms, p95_ms = benchmark_context_length(
+            model=model,
+            token_ids=token_ids,
+            k_cache=k_cache,
+            v_cache=v_cache,
+            warmups=args.warmups,
+            runs=args.runs,
+        )
+        accounting = calculate_decode_accounting(
+            batch_size=cfg.batch_size,
+            context_length=context_length,
+            embed_dim=cfg.embed_dim,
+            num_heads=cfg.num_heads,
+            dtype_bytes=cfg.dtype_bytes,
+        )
+        median_decode_tokens_per_second = cfg.batch_size * 1000.0 / median_ms
+        results.append(
+            BenchmarkResult(
+                context_length=context_length,
+                median_ms=median_ms,
+                p95_ms=p95_ms,
+                median_decode_tokens_per_second=median_decode_tokens_per_second,
+                accounting=accounting,
+            )
+        )
+    return results
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    results = run_experiment(args)
+    print_results(results)
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = args.out_dir / "decode_results.csv"
+    save_results_csv(results, csv_path)
+    print(f"Saved aggregated CSV:\n  {csv_path}")
+
+    if not args.skip_plots:
+        latency_path = args.out_dir / "decode_latency_vs_context_length.png"
+        throughput_path = args.out_dir / "decode_throughput_vs_context_length.png"
+        plot_latency(results, latency_path)
+        plot_throughput(results, throughput_path)
+        print("Saved plots:")
+        print(f"  {latency_path}")
+        print(f"  {throughput_path}")
+
+    if len(results) >= 2:
+        context_lengths = [result.context_length for result in results]
+        median_latencies = [result.median_ms for result in results]
+        alpha, coefficient, r_squared = fit_power_law(
+            context_lengths, median_latencies
+        )
+        print("\n==================== Empirical Scaling Fit ====================")
+        print(f"median latency ≈ {coefficient:.6g} × L^{alpha:.3f}")
+        print(f"R²             = {r_squared:.4f}")
+        print("Interpretation: alpha near 0 is approximately constant;")
+        print("near 1 is approximately linear in KV length.")
+        print("===============================================================\n")
+
+        if not args.skip_plots:
+            log_log_path = args.out_dir / "decode_latency_loglog_fit.png"
+            plot_log_log_fit(
+                results, alpha, coefficient, r_squared, log_log_path
+            )
+            print(f"  {log_log_path}")
+    else:
+        print("\nScaling fit skipped: at least two context lengths are required.")
+
+    print("Individual timing samples are not saved.")
+
+
+if __name__ == "__main__":
+    main()

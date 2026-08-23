@@ -1201,4 +1201,103 @@ Decode should teach us something closer to:
 `Small sequential computations with repeatedly accessed state can be much harder to execute efficiently on GPUs`  
 And that is exactly the right setup for GPU Architecture Foundations.  
 
+# Decode Analysis  
+![](decode_outputs/decode_latency_vs_context_length.png "This is a sample image.") 
+
+## What the curve is saying  
+There are really two regions here:  
+**Region A — small to moderate KV lengths**  
+Roughly up to:  
+$L≈8K–16K$  
+the median decode latency stays almost flat, around:  
+`0.29 ms`  
+fixed overhead dominates.  
+
+**Region B — larger KV lengths**  
+Starting around:  
+`L=32,768`  
+latency begins rising clearly:  
+* `32K → ∼0.343 ms`  
+* `64K → ∼0.412 ms`  
+* `131K → ∼0.537 ms`   
+
+So now the context-dependent work is finally becoming visible. That is exactly the kind of transition we were hoping to expose.  
+
+## Why this makes sense physically  
+For this lab, with:  
+`D=512,FP16`  
+the logical KV footprint per layer is:  
+`KV bytes=2048L`  
+So approximately:  
+
+|    (L) | KV footprint |
+| -----: | -----------: |
+|   2048 |        4 MiB |
+|   4096 |        8 MiB |
+|   8192 |       16 MiB |
+|  16384 |       32 MiB |
+|  32768 |       64 MiB |
+|  65536 |      128 MiB |
+| 131072 |      256 MiB |
+
+Now compare that to an A100’s L2 cache capacity.  
+The key intuition is:  
+* up through smaller L, the working set is small enough that caching and reuse can hide much of the expected O(L) cost,  
+* but once the KV footprint gets large enough, cache help becomes less effective,  
+* and the decode step starts paying more for real memory movement.
+So the bend upward around 16K–32K is very plausibly a working-set / cache-hierarchy transition.  
+That is a genuinely important architectural finding.  
+
+## Why latency still does not double when L doubles  
+Even in the rising region:  
+`32768 → 65536`  
+does not double latency.  
+And:  
+`65536 → 131072`  
+also does not double latency.  
+
+That is expected because the true model is not:  
+`T(L) = kL`  
+but rather:  
+`T(L) = C + kL`  
+where:  
+* C = fixed decode overhead  
+* kL = context-dependent work  
+
+At small L:  
+`C ≫ kL`  
+so latency looks flat.  
+
+At large L:  
+`kL`  
+becomes more important, but C is still there.  
+So doubling L does not double total latency unless the linear term fully dominates.  
+
+## The p95 behavior is also informative  
+The p95 rises more strongly than the median at large L.  
+That suggests that as the workload becomes more memory-sensitive, tail latency becomes more variable.  
+
+Possible contributors:  
+* cache residency differences  
+* GPU memory-system effects  
+* general system noise becoming more visible once work increases  
+* slightly less stable execution when the working set grows  
+So the widening gap between median and p95 at large L is itself meaningful.  
+
+Overall, a strong interpretation is:  
+For one-token decode on an A100 with D=512, batch 1, and FP16, latency is initially dominated by fixed overhead and small-kernel inefficiency, so decode latency remains nearly flat as KV length  
+increases. Once the KV working set becomes large enough, latency rises with context length, revealing the growing cost of KV-cache access and attention over longer histories.  
+
+This also fits beautifully into the track:  
+prefill lab showed: `large parallel work → attention dominates quickly`  
+decode lab is now showing: `tiny one-token work → overhead dominated at first` then later: `larger KV working set → memory/context effects emerge`  
+
+**flat overhead regime → working-set transition → rising context-sensitive regime**  
+
+
+
+
+
+
+
 
