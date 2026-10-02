@@ -629,28 +629,15 @@ A thread block consumes several independent SM resources simultaneously:
 - warp slots
 - registers
 - shared memory
-- one resident-block slot
+- one resident-block slot  
 
-The number of blocks that can reside concurrently on an SM is therefore determined by the **most restrictive resource**:
-$
-[
-B_{\text{resident}}
-=
-\min
-\left(
-B_{\text{threads}},
-B_{\text{warps}},
-B_{\text{registers}},
-B_{\text{shared}},
-B_{\text{block-limit}}
-\right)
-]
-$  
+The number of blocks that can reside concurrently on an SM is therefore determined by the most restrictive resource:
+
+`B_resident = min(B_threads,B_warps,B_registers,B_shared-mem,B_block-limit)`  
 
 ### Example
 
-Assume:
-
+Assume:  
 - 256 threads/block
 - 8 warps/block
 - 64 registers/thread
@@ -706,35 +693,6 @@ Examples:
 - Lower occupancy may still be sufficient to hide latency.
 
 Therefore the real optimization question is:
-$[
-\boxed{
-\text{Does the benefit from additional per-block resources outweigh the loss of concurrency?}
-}
-]
-$  
-
-Occupancy is an important diagnostic metric, but not the final performance objective.  
-
-### Performance Engineering Interpretation
-
-The objective is not simply to maximize occupancy.
-
-Increasing per-block resource usage may reduce residency but still improve performance if it provides enough benefit.
-
-Examples:
-
-- More shared memory may reduce HBM/global-memory traffic through better data reuse.
-- More registers may increase instruction-level parallelism and avoid register spilling.
-- Larger tiles may improve Tensor Core utilization.
-- Lower occupancy may still be sufficient to hide latency.
-
-Therefore the real optimization question is:
-$
-[
-\boxed{
-\text{Does the benefit from additional per-block resources outweigh the loss of concurrency?}
-}
-]
-$  
+`Does the benefit from additional per-block resources outweigh the loss of concurrency?}`  
 
 Occupancy is an important diagnostic metric, but not the final performance objective.  
