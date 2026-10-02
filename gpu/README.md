@@ -632,8 +632,8 @@ A thread block consumes several independent SM resources simultaneously:
 - one resident-block slot
 
 The number of blocks that can reside concurrently on an SM is therefore determined by the **most restrictive resource**:
-
-\[
+$
+[
 B_{\text{resident}}
 =
 \min
@@ -644,7 +644,8 @@ B_{\text{registers}},
 B_{\text{shared}},
 B_{\text{block-limit}}
 \right)
-\]
+]
+$  
 
 ### Example
 
