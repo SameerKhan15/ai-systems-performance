@@ -615,3 +615,125 @@ And this leads directly to a foundational GPU-performance concept:
 
 So when Nsight eventually shows less issue throughput than the theoretical hardware maximum, one possible reason is not lack of execution units at all—it can be instruction/data dependencies preventing the scheduler from feeding those units.  
 
+# SM Residency and Occupancy: How Resource Limits Determine Concurrent Blocks  
+![](GPU_SM_Occupancy_Resource_Limits_Infographic.png "This is a sample image.")  
+
+SM residency resource model: A thread block consumes threads, warps, registers, shared memory, and one block slot. The number of resident blocks is the minimum allowed by all resource constraints.  
+In this example, shared memory is the bottleneck. Architectural values shown are illustrative and should be verified for the target GPU.  
+
+## SM Residency and Occupancy: How Resource Limits Determine Concurrent Blocks
+
+A thread block consumes several independent SM resources simultaneously:
+
+- thread slots
+- warp slots
+- registers
+- shared memory
+- one resident-block slot
+
+The number of blocks that can reside concurrently on an SM is therefore determined by the **most restrictive resource**:
+
+\[
+B_{\text{resident}}
+=
+\min
+\left(
+B_{\text{threads}},
+B_{\text{warps}},
+B_{\text{registers}},
+B_{\text{shared}},
+B_{\text{block-limit}}
+\right)
+\]
+
+### Example
+
+Assume:
+
+- 256 threads/block
+- 8 warps/block
+- 64 registers/thread
+- 16,384 registers/block
+- 80 KiB shared memory/block
+
+Using the illustrative SM limits:
+
+| Constraint | Calculation | Blocks permitted |
+|---|---:|---:|
+| Threads | \(2048 / 256\) | 8 |
+| Warps | \(64 / 8\) | 8 |
+| Registers | \(65536 / 16384\) | 4 |
+| Shared memory | \(228 / 80\) | 2 |
+| Architectural block limit | hardware limit | 32 |
+
+Therefore:
+$[B_{\text{resident}}=\min(8,8,4,2,32)=2]$
+
+Shared memory is therefore the **binding resource**.
+
+The two resident blocks contain:
+$[2 \times 8 = 16\text{ resident warps}]$
+
+If the SM supports 64 resident warp slots:
+$[\text{Occupancy}=\frac{16}{64}=25\%]$
+
+### Important distinction: block limit vs thread limit
+
+The architectural maximum of 32 resident blocks does **not** mean that 32 blocks of arbitrary size can reside simultaneously.
+
+For example, 32 blocks × 256 threads would require:
+$[32\times256=8192\text{ threads}]$
+but the SM supports only 2,048 resident threads in this illustrative model.
+
+Therefore the thread-capacity constraint limits 256-thread blocks to:
+$[2048/256=8\text{ blocks}]$
+before registers or shared memory are even considered.
+
+The maximum-block limit becomes more relevant for very small blocks. For example, with 32-thread blocks, the thread and warp limits might theoretically permit 64 blocks, but a 32-block architectural ceiling would become the limiting factor.
+
+### Performance Engineering Interpretation  
+
+The objective is not simply to maximize occupancy.  
+
+Increasing per-block resource usage may reduce residency but still improve performance if it provides enough benefit.  
+
+Examples:
+
+- More shared memory may reduce HBM/global-memory traffic through better data reuse.
+- More registers may increase instruction-level parallelism and avoid register spilling.
+- Larger tiles may improve Tensor Core utilization.
+- Lower occupancy may still be sufficient to hide latency.
+
+Therefore the real optimization question is:
+$[
+\boxed{
+\text{Does the benefit from additional per-block resources outweigh the loss of concurrency?}
+}
+]
+$  
+
+Occupancy is an important diagnostic metric, but not the final performance objective.  
+
+### Performance Engineering Interpretation
+
+The objective is not simply to maximize occupancy.
+
+Increasing per-block resource usage may reduce residency but still improve performance if it provides enough benefit.
+
+Examples:
+
+- More shared memory may reduce HBM/global-memory traffic through better data reuse.
+- More registers may increase instruction-level parallelism and avoid register spilling.
+- Larger tiles may improve Tensor Core utilization.
+- Lower occupancy may still be sufficient to hide latency.
+
+Therefore the real optimization question is:
+$
+[
+\boxed{
+\text{Does the benefit from additional per-block resources outweigh the loss of concurrency?}
+}
+]
+$  
+
+Occupancy is an important diagnostic metric, but not the final performance objective.  
