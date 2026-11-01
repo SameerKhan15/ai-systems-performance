@@ -112,70 +112,41 @@ Assume:
 - Pure decode iteration time: 35 ms
 
 ### Step 1 — Calculate prefill occupancy
-
-\[
-\lambda T_{\text{pre}}=3(0.1)=0.3
-\]
-
+$\lambda T_{\text{pre}}=3(0.1)=0.3$  
 Prefill occupies 30% of GPU service time.
 
 ### Step 2 — Calculate available decode time
-
-\[
-T_{\text{decode available}}=1000(1-0.3)=700\text{ ms}
-\]
+$T_{\text{decode available}}=1000(1-0.3)=700\text{ ms}$  
 
 ### Step 3 — Calculate completed decode iterations
-
-\[
-N_{\text{iterations}}=\frac{700}{35}=20
-\]
+$N_{\text{iterations}}= {700} / {35} = 20$  
 
 ### Step 4 — Calculate effective TPOT
-
-\[
-TPOT_{\text{real}}=\frac{1000}{20}=50\text{ ms}
-\]
+$TPOT_{\text{real}}={1000} / {20}=50\text{ ms}$  
 
 Substitute the iteration count:
-
-\[
-TPOT_{\text{real}}=\frac{1000}{700/35}
-\]
+$TPOT_{\text{real}}={1000} / ({700/35})$    
 
 Rearrange:
+$TPOT_{\text{real}}={35} / ({700/1000})$  
 
-\[
-TPOT_{\text{real}}=\frac{35}{700/1000}
-\]
+Since $(700/1000=1-\lambda T_{\text{pre}})$:  
 
-Since \(700/1000=1-\lambda T_{\text{pre}}\):
-
-\[
-\boxed{
-TPOT_{\text{real}}\approx
-\frac{T_{\text{iter}}(b)}
-{1-\lambda T_{\text{pre}}}
-}
-\]
+$
+TPOT_{\text{real}} = {T_{\text{iter}}(b)} / {1-\lambda T_{\text{pre}}}
+$  
 
 ## 3. Why This Formulation Matters
 
 The equation separates two performance factors.
 
 **Intrinsic decode efficiency**
-
-\[
-T_{\text{iter}}(b)
-\]
+$T_{\text{iter}}(b)$  
 
 Represents the GPU's execution cost for a decode iteration at a given batch size.
 
 **Prefill interference**
-
-\[
-1-\lambda T_{\text{pre}}
-\]
+$1-\lambda T_{\text{pre}}$  
 
 Represents the fraction of service time remaining for decoding.
 
@@ -202,14 +173,13 @@ As prefill occupancy approaches 100%, predicted TPOT grows without bound.
 Increasing KV-cache reuse reduces the amount of new prefill computation.
 
 Holding arrival rate and decode iteration time constant:
-
-\[
+$
 T_{\text{pre}}\downarrow
 \Rightarrow
 \lambda T_{\text{pre}}\downarrow
 \Rightarrow
 TPOT_{\text{real}}\downarrow
-\]
+$  
 
 Therefore, KV-cache reuse can benefit not only the incoming request's TTFT but also the TPOT of requests already decoding.
 
