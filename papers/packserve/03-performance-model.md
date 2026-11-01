@@ -7,18 +7,17 @@ Prefill and decode share GPU execution resources.
 Prefill consumes a fraction of available GPU service time, reducing the capacity available for decode operations.
 
 PackServe models this relationship as:
-
-\[
+$
 TPOT_{\text{real}} \approx
 \frac{T_{\text{iter}}(b)}
 {1-\lambda T_{\text{pre}}}
-\]
+$
 
 ### Variables
 
 | Variable | Definition | Units |
 |---|---|---|
-| \(T_{\text{iter}}(b)\) | Pure decode iteration time for batch size \(b\) | Seconds/iteration |
+| $(T_{\text{iter}}(b))$ | Pure decode iteration time for batch size \(b\) | Seconds/iteration |
 | \(b\) | Decode batch size | Requests |
 | \(\lambda\) | Incoming request rate | Requests/second |
 | \(T_{\text{pre}}\) | Average prefill service time per request | Seconds/request |
