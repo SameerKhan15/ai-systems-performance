@@ -30,9 +30,7 @@ Let:
 - $(T_{\text{pre}})$: Average prefill service time (seconds/request).
 
 The aggregate prefill workload introduced per second is:  
-$
-\lambda T_{\text{pre}}
-$
+$\lambda T_{\text{pre}}$  
 
 For example:  
 $\lambda=3\text{ requests/sec}$   
