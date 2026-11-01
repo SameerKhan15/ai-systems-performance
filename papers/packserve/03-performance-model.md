@@ -26,30 +26,20 @@ The GPU continuously services a mixture of prefill and decode operations belongi
 
 Let:
 
-- \(\lambda\): Average request arrival rate (requests/second).
-- \(T_{\text{pre}}\): Average prefill service time (seconds/request).
+- $(\lambda)$: Average request arrival rate (requests/second).
+- $(T_{\text{pre}})$: Average prefill service time (seconds/request).
 
-The aggregate prefill workload introduced per second is:
-
-\[
+The aggregate prefill workload introduced per second is:  
+$
 \lambda T_{\text{pre}}
-\]
+$
 
-For example:
+For example:  
+$\lambda=3\text{ requests/sec}$   
+$T_{\text{pre}}=0.1\text{ sec/request}$
 
-\[
-\lambda=3\text{ requests/sec}
-\]
-
-\[
-T_{\text{pre}}=0.1\text{ sec/request}
-\]
-
-Therefore:
-
-\[
-\lambda T_{\text{pre}}=3(0.1)=0.3
-\]
+Therefore:  
+$\lambda T_{\text{pre}}=3(0.1)=0.3$  
 
 Under the simplified non-overlapping service model, prefill consumes 30% of GPU service capacity, leaving 70% available for decoding.
 
@@ -65,15 +55,11 @@ Consequently, its effective wall-clock TPOT increases even though its intrinsic 
 
 ### 5. Connection to Equation 1
 
-The effective decode service fraction is:
+The effective decode service fraction is:  
+$f_{\text{decode}}=1-\lambda T_{\text{pre}}$  
 
-\[
-f_{\text{decode}}=1-\lambda T_{\text{pre}}
-\]
-
-If the intrinsic decode iteration time is \(T_{\text{iter}}(b)\), then:
-
-\[
+If the intrinsic decode iteration time is $T_{\text{iter}}(b)$, then:
+$
 \boxed{
 TPOT_{\text{real}}\approx
 \frac{T_{\text{iter}}(b)}
@@ -82,7 +68,7 @@ TPOT_{\text{real}}\approx
 \frac{T_{\text{iter}}(b)}
 {1-\lambda T_{\text{pre}}}
 }
-\]
+$  
 
 The equation relates intrinsic decode execution time to the fraction of wall-clock service capacity available for decoding.
 
