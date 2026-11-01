@@ -95,11 +95,11 @@ $TPOT_{\text{real}} = T_{\text{iter}}(b) / (1 - \lambda * T_{\text{pre}})$
 | Variable | Definition | Units |
 |---|---|---|
 | $(T_{\text{iter}}(b))$ | Pure decode iteration time for batch size \(b\) | Seconds/iteration |
-| \(b\) | Decode batch size | Requests |
-| \(\lambda\) | Incoming request rate | Requests/second |
-| \(T_{\text{pre}}\) | Average prefill service time per request | Seconds/request |
-| \(\lambda T_{\text{pre}}\) | Fraction of service time occupied by prefill | Dimensionless |
-| \(TPOT_{\text{real}}\) | Effective time per output token | Seconds/token |
+| $(b)$ | Decode batch size | Requests |
+| $(\lambda)$ | Incoming request rate | Requests/second |
+| $(T_{\text{pre}})$ | Average prefill service time per request | Seconds/request |
+| $(\lambda T_{\text{pre}})$ | Fraction of service time occupied by prefill | Dimensionless |
+| $(TPOT_{\text{real}})$ | Effective time per output token | Seconds/token |
 
 ## 2. Derivation From First Principles
 
