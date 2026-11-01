@@ -1,3 +1,109 @@
+## Mental Model: Per-Request Execution vs. Aggregate GPU Execution
+
+### 1. Individual Request Lifecycle
+
+Each LLM inference request consists of two phases:
+
+1. **Prefill:** Processes the input prompt, constructs the KV cache, and produces the first output token.
+2. **Decode:** Generates the remaining output tokens autoregressively.
+
+For a request generating \(N\) output tokens, our simplified model assumes one prefill operation followed by \(N-1\) decode iterations.
+
+### 2. Continuous Request Arrivals
+
+In a production serving system, multiple requests share the same GPU.
+
+As existing requests transition from prefill to decode, new requests continue arriving and introduce additional prefill work.
+
+Meanwhile, requests that finish generating their output tokens leave the system.
+
+In statistical steady state, assuming the system is stable:
+$\text{Average arrival rate}=\text{Average completion rate}$  
+
+The GPU continuously services a mixture of prefill and decode operations belonging to different requests.
+
+### 3. Aggregate Prefill Occupancy
+
+Let:
+
+- \(\lambda\): Average request arrival rate (requests/second).
+- \(T_{\text{pre}}\): Average prefill service time (seconds/request).
+
+The aggregate prefill workload introduced per second is:
+
+\[
+\lambda T_{\text{pre}}
+\]
+
+For example:
+
+\[
+\lambda=3\text{ requests/sec}
+\]
+
+\[
+T_{\text{pre}}=0.1\text{ sec/request}
+\]
+
+Therefore:
+
+\[
+\lambda T_{\text{pre}}=3(0.1)=0.3
+\]
+
+Under the simplified non-overlapping service model, prefill consumes 30% of GPU service capacity, leaving 70% available for decoding.
+
+### 4. Why Existing Requests Experience Higher TPOT
+
+Consider Request A, which has already completed prefill and is generating output tokens.
+
+While Request A decodes, Requests B, C, and D arrive and execute their prefill operations.
+
+Request A does not perform additional prefill work. However, its decode iterations can be delayed because the GPU is servicing prefill operations belonging to other requests.
+
+Consequently, its effective wall-clock TPOT increases even though its intrinsic decode execution cost may remain unchanged.
+
+### 5. Connection to Equation 1
+
+The effective decode service fraction is:
+
+\[
+f_{\text{decode}}=1-\lambda T_{\text{pre}}
+\]
+
+If the intrinsic decode iteration time is \(T_{\text{iter}}(b)\), then:
+
+\[
+\boxed{
+TPOT_{\text{real}}\approx
+\frac{T_{\text{iter}}(b)}
+{f_{\text{decode}}}
+=
+\frac{T_{\text{iter}}(b)}
+{1-\lambda T_{\text{pre}}}
+}
+\]
+
+The equation relates intrinsic decode execution time to the fraction of wall-clock service capacity available for decoding.
+
+### 6. Modeling Assumptions
+
+This interpretation assumes:
+
+- Prefill and decode occupy disjoint portions of modeled GPU service time.
+- The system operates in a stable statistical steady state.
+- Average arrival rate and prefill cost are representative.
+- Decode batch size and iteration time can be approximated as stable.
+- Prefill utilization remains below 100%.
+
+Actual serving systems may interleave, chunk, or partially overlap prefill and decode operations. Resource contention and scheduling variability can therefore cause deviations from this approximation.
+
+### Key Engineering Insight
+
+**The prefill work of newly arriving requests can increase the TPOT of requests already decoding.**
+
+Equation 1 captures this cross-request interference by modeling the GPU's aggregate prefill occupancy rather than the prefill cost of any individual decoding request.  
+
 # PackServe — Performance Model
 
 ## 1. Prefill/Decode Interference
