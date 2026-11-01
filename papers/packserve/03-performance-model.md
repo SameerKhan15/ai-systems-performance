@@ -56,16 +56,10 @@ Consequently, its effective wall-clock TPOT increases even though its intrinsic 
 The effective decode service fraction is:  
 $f_{\text{decode}}=1-\lambda T_{\text{pre}}$  
 
-If the intrinsic decode iteration time is $T_{\text{iter}}(b)$, then:
+If the intrinsic decode iteration time is $T_{\text{iter}}(b)$, then:  
 $
-\boxed{
-TPOT_{\text{real}}\approx
-\frac{T_{\text{iter}}(b)}
-{f_{\text{decode}}}
-=
-\frac{T_{\text{iter}}(b)}
-{1-\lambda T_{\text{pre}}}
-}
+{ TPOT_{\text{real}}\approx \frac{T_{\text{iter}}(b)} {f_{\text{decode}}}
+= \frac{T_{\text{iter}}(b)} {1-\lambda T_{\text{pre}}} }
 $  
 
 The equation relates intrinsic decode execution time to the fraction of wall-clock service capacity available for decoding.
