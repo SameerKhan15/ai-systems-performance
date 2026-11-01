@@ -172,14 +172,8 @@ As prefill occupancy approaches 100%, predicted TPOT grows without bound.
 
 Increasing KV-cache reuse reduces the amount of new prefill computation.
 
-Holding arrival rate and decode iteration time constant:
-$
-T_{\text{pre}}\downarrow
-\Rightarrow
-\lambda T_{\text{pre}}\downarrow
-\Rightarrow
-TPOT_{\text{real}}\downarrow
-$  
+Holding arrival rate and decode iteration time constant:  
+$T_{\text{pre}}\downarrow \Rightarrow \lambda T_{\text{pre}}\downarrow \Rightarrow TPOT_{\text{real}}\downarrow$    
 
 Therefore, KV-cache reuse can benefit not only the incoming request's TTFT but also the TPOT of requests already decoding.
 
