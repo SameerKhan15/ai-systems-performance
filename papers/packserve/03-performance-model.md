@@ -200,3 +200,81 @@ This provides a useful framework for analyzing interference in shared serving sy
 
 Derive Equation 2 using Little's Law, then connect Equations 1–3 to throughput, batching, and SLO-constrained scheduling.  
 
+## Prefill Computation and KV-Cache Reuse
+
+### 1. Prefill and Decode
+
+Transformer inference consists of two primary phases:
+
+- **Prefill:** Process uncached input tokens through all transformer layers, performing self-attention, FFN computation, and KV-cache creation.
+- **Decode:** Generate output tokens autoregressively. Each decode step performs transformer computation for the next token, attends to previously cached K/V representations, and extends the KV cache.
+
+### 2. Cached vs. Uncached Tokens
+
+Consider a conversation with an initial prompt followed by an additional user message.
+
+- **Cached tokens (\(C\)):** Tokens whose K/V representations have already been computed and remain reusable in the serving instance.
+- **Uncached tokens (\(N\)):** Tokens requiring fresh transformer computation.
+- **Total input tokens:** \(L=C+N\).
+
+During a subsequent request, the matching cached prefix does not need to repeat its self-attention, Q/K/V projection, or FFN computation.
+
+Only the uncached tokens undergo full transformer processing. They attend to the cached K/V representations to incorporate the preceding context.
+
+This reuse is valid because causal attention prevents earlier tokens from depending on subsequently appended tokens.
+
+KV caching is not response caching: output generation still requires decoding.
+
+### 3. PackServe Prefill Performance Model
+
+PackServe approximates prefill latency using:
+$
+T_{pf}(N,C)\approx\alpha_0+\alpha_1N+\alpha_2NC+\alpha_3N^2
+$  
+
+Where:
+- $(\alpha_0)$: Fixed execution overhead.
+- \(\alpha_1N\): Per-token computation, including FFN and Q/K/V projections.
+- \(\alpha_2NC\): Attention between new tokens and the cached prefix.
+- \(\alpha_3N^2\): Attention among new tokens.
+
+The exact number of causal attention pairs is:
+
+\[
+A(N,C)=NC+\frac{N(N+1)}{2}
+\]
+
+The coefficients are empirically calibrated for the model and serving configuration. This is a latency prediction model, not an exact FLOP-count equation.
+
+### 4. Example: Prefix Reuse
+
+Suppose an initial prompt contains 10 tokens, and a subsequent request appends 5 additional tokens.
+
+If the original prefix remains cached:
+
+\[
+C=10,\qquad N=5
+\]
+
+The prefill attention work is:
+
+\[
+A(5,10)=5(10)+\frac{5(6)}{2}=65
+\]
+
+Without cache reuse, all 15 tokens require prefill:
+
+\[
+A(15,0)=\frac{15(16)}{2}=120
+\]
+
+Prefix reuse reduces attention-pair computations and avoids repeating the FFN and projection work for the cached tokens.
+
+### 5. Implications for PackServe
+
+- KV-cache locality directly influences request prefill cost.
+- Cached tokens still participate in attention through their existing K/V representations.
+- Greater prefix reuse generally reduces prefill computation for a fixed total input length.
+- The scheduling policy must balance prefill savings against decode contention and TPOT constraints.
+
+**Key insight:** KV-cache reuse avoids recomputing the transformer representations of previously processed tokens, not merely the attention calculations associated with them.
