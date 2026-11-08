@@ -132,9 +132,7 @@ $TPOT_{\text{real}}={35} / ({700/1000})$
 
 Since $(700/1000=1-\lambda T_{\text{pre}})$:  
 
-$
-TPOT_{\text{real}} = {T_{\text{iter}}(b)} / {1-\lambda T_{\text{pre}}}
-$  
+$TPOT_{\text{real}} = {T_{\text{iter}}(b)} / {1-\lambda T_{\text{pre}}}$  
 
 ## 3. Why This Formulation Matters
 
