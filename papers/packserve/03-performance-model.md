@@ -225,22 +225,17 @@ KV caching is not response caching: output generation still requires decoding.
 
 ### 3. PackServe Prefill Performance Model
 
-PackServe approximates prefill latency using:
-$
-T_{pf}(N,C)\approx\alpha_0+\alpha_1N+\alpha_2NC+\alpha_3N^2
-$  
+PackServe approximates prefill latency using:  
+$T_{pf}(N,C)\approx\alpha_0+\alpha_1N+\alpha_2NC+\alpha_3N^2$  
 
 Where:
-- $(\alpha_0)$: Fixed execution overhead.
-- \(\alpha_1N\): Per-token computation, including FFN and Q/K/V projections.
-- \(\alpha_2NC\): Attention between new tokens and the cached prefix.
-- \(\alpha_3N^2\): Attention among new tokens.
+- $\alpha_0$: Fixed execution overhead.
+- $\alpha_1N$: Per-token computation, including FFN and Q/K/V projections.
+- $\alpha_2NC$: Attention between new tokens and the cached prefix.
+- $\alpha_3N^2$: Attention among new tokens.
 
 The exact number of causal attention pairs is:
-
-\[
-A(N,C)=NC+\frac{N(N+1)}{2}
-\]
+$A(N,C)=NC+\frac{N(N+1)}{2}$  
 
 The coefficients are empirically calibrated for the model and serving configuration. This is a latency prediction model, not an exact FLOP-count equation.
 
@@ -249,22 +244,13 @@ The coefficients are empirically calibrated for the model and serving configurat
 Suppose an initial prompt contains 10 tokens, and a subsequent request appends 5 additional tokens.
 
 If the original prefix remains cached:
-
-\[
-C=10,\qquad N=5
-\]
+$C=10, N=5$  
 
 The prefill attention work is:
-
-\[
-A(5,10)=5(10)+\frac{5(6)}{2}=65
-\]
+$A(5,10)=5(10)+\frac{5(6)}{2}=65$  
 
 Without cache reuse, all 15 tokens require prefill:
-
-\[
-A(15,0)=\frac{15(16)}{2}=120
-\]
+$A(15,0)=\frac{15(16)}{2}=120$  
 
 Prefix reuse reduces attention-pair computations and avoids repeating the FFN and projection work for the cached tokens.
 
